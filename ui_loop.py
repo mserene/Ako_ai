@@ -98,4 +98,3 @@ def ui_mvp_loop(monitor_index: int = 1, interval_sec: float = 0.8):
             print(f"[UI] key press 실패: {e}")
 
         time.sleep(interval_sec)
-1
