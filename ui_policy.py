@@ -4,7 +4,7 @@ from typing import List, Optional, Set, Tuple
 import re
 
 # 버튼 후보 단어
-BUTTON_WORDS: List[str] = ["확인", "예", "동의", "다음", "닫기", "취소", "아니오"]
+BUTTON_WORDS: List[str] = ["확인", "예", "동의", "다음", "건너뛰기", "닫기", "취소", "아니오"]
 
 # 키 매핑
 KEY_FOR = {
@@ -12,6 +12,7 @@ KEY_FOR = {
     "예": "enter",
     "동의": "enter",
     "다음": "enter",
+    "건너뛰기": "enter",
     "닫기": "esc",
     "취소": "esc",
     "아니오": "esc",
@@ -25,7 +26,7 @@ DIALOG_HINT_WORDS: List[str] = [
 ]
 
 # 긍정/진행 성격 버튼
-POSITIVE = {"확인", "예", "동의", "다음"}
+POSITIVE = {"확인", "예", "동의", "다음", "건너뛰기"}
 # 부정/종료 성격 버튼
 NEGATIVE = {"닫기", "취소", "아니오"}
 
@@ -84,8 +85,8 @@ def decide_action(lines: List[str]) -> Tuple[Optional[str], Optional[str], str]:
     # - 긍정/진행(동의/다음)은 ctx_positive일 때만
     # - 확인/예도 ctx_positive 또는 ctx(일반 맥락)에서만
     # - 닫기/취소는 ctx_negative일 때만 (실수로 ESC 난사 방지)
-    priority = ["동의", "다음", "확인", "예", "취소", "닫기", "아니오"]
-
+    priority = ["동의", "다음", "확인", "예", "건너뛰기", "취소", "닫기", "아니오"]
+    
     for t in priority:
         if t not in hits:
             continue
