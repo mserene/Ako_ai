@@ -1,10 +1,9 @@
-# ui_policy.py (룰/키보드 우선)
 from __future__ import annotations
-from typing import Optional, List
+from typing import List, Optional
 
 BUTTON_WORDS: List[str] = ["확인", "예", "동의", "다음", "닫기", "취소", "아니오"]
 
-# “텍스트 UI 자동화 1단계”는 클릭보다 키보드가 훨씬 안정적
+# 1단계 MVP는 클릭보다 키보드가 훨씬 안정적
 KEY_FALLBACK = {
     "확인": "enter",
     "예": "enter",

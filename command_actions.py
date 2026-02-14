@@ -30,6 +30,26 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+# -------------------------------------------------------------------------
+# 배포/패키징(Python 실행 vs PyInstaller)에서 데이터 파일 경로 처리
+# - app_commands.json, search_sites.json 같은 파일은 exe 옆에 둔다.
+# - 현재 작업 디렉터리가 달라도 항상 올바르게 로드되도록 base dir로 보정한다.
+# -------------------------------------------------------------------------
+def _data_path(rel: str) -> str:
+    rel = (rel or "").strip()
+    if not rel:
+        return rel
+    if os.path.isabs(rel):
+        return rel
+    try:
+        # PyInstaller로 빌드된 경우(sys.frozen==True) exe가 있는 폴더를 기준으로 함
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
+    except Exception:
+        base_dir = os.getcwd()
+    return os.path.join(base_dir, rel)
+
+
+
 
 # -----------------------------------------------------------------------------
 # 공통 유틸
@@ -307,7 +327,7 @@ def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
         return _APP_CACHE
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(_data_path(path), "r", encoding="utf-8") as f:
             raw = json.load(f)
         apps = raw.get("apps", raw)
     except Exception:
@@ -502,7 +522,7 @@ def load_search_sites(path: str = "search_sites.json") -> Tuple[str, Dict[str, S
     default_key = "google"
     sites: Dict[str, SearchSite] = {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(_data_path(path), "r", encoding="utf-8") as f:
             raw = json.load(f)
         default_key = raw.get("default", default_key)
         raw_sites = raw.get("sites", {})
