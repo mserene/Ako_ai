@@ -91,22 +91,23 @@ def main():
     args = p.parse_args()
 
     
-if args.mode == "actions":
-    if not args.text.strip():
-        print('예: python app.py --mode=actions --text "크롬 켜줘"')
-        print('예: python app.py --mode=actions --text "오른쪽에 있는 닫기 눌러줘"')
-        return
-    print(run_actions(args.text))
+    if args.mode == "actions":
+        if not args.text.strip():
+            print('예: python app.py --mode=actions --text "크롬 켜줘"')
+            print('예: python app.py --mode=actions --text "오른쪽에 있는 닫기 눌러줘"')
+            return
+        print(run_actions(args.text))
 
-elif args.mode == "do":
-    if not args.press.strip():
-        print('예: python app.py --mode=do --press "닫기"')
-        print('예: python app.py --mode=do --press "닫기" --dir "왼쪽"')
-        return
-    print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout))
+    elif args.mode == "do":
+        if not args.press.strip():
+            print('예: python app.py --mode=do --press "닫기"')
+            print('예: python app.py --mode=do --press "닫기" --dir "왼쪽"')
+            return
+        print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout))
 
-else:
-    print(run_ui())
+    else:
+        print(run_ui())
+
 
 
 if __name__ == "__main__":
