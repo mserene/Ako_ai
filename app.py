@@ -49,8 +49,8 @@ def main():
 
     if args.mode == "actions":
         if not args.text.strip():
-            print("예: ako_ai.exe --mode=actions --text "크롬 켜줘"")
-            print("    또는: python app.py --mode=actions --text "크롬 켜줘"")
+            print('예: python app.py --mode=actions --text "크롬 켜줘"')
+            print('    또는: python app.py --mode=actions --text "크롬 켜줘"')
             return
         print(run_actions(args.text))
     else:
