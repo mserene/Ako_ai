@@ -18,6 +18,8 @@ KEY_FOR = {
     "아니오": "esc",
 }
 
+SINGLE_HIT_ALLOW = {"건너뛰기"}
+
 # “대화상자/설치/권한/업데이트/오류” 같은 맥락 단어(이게 있어야 자동 누르도록)
 DIALOG_HINT_WORDS: List[str] = [
     "설치", "업데이트", "권한", "허용", "승인", "경고", "오류", "실패",
@@ -69,7 +71,10 @@ def decide_action(lines: List[str]) -> Tuple[Optional[str], Optional[str], str]:
     ctx = has_dialog_context(lines)
     if len(hits) == 1 and not ctx:
         only = next(iter(hits))
+        if only in SINGLE_HIT_ALLOW:
+            return only, KEY_FOR[only], f"single_hit_allow({only})"
         return None, None, f"single_hit_no_context({only})"
+
 
     # “긍정/진행 버튼”은 설치/권한/업데이트 같은 맥락에서만 자동 수행
     # “닫기/취소”는 오류/경고/종료/닫기 질문 같은 맥락에서만 자동 수행
