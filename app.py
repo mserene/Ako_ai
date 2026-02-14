@@ -17,9 +17,43 @@ def _set_workdir_to_appdir() -> str:
     return app_dir
 
 _APP_DIR = _set_workdir_to_appdir()
+import re
+
+def _try_ui_click_command(text: str) -> str | None:
+    """
+    actions 모드에서도 '닫기 눌러줘', '오른쪽 위에 있는 닫기 눌러줘' 같은 문장을 처리.
+    실패하면 None.
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+
+    # 방향 키워드(공백 포함 허용)
+    dir_pat = r"(왼쪽\s*위|오른쪽\s*위|왼쪽\s*아래|오른쪽\s*아래|왼쪽|오른쪽|위|아래|좌상|우상|좌하|우하)"
+    # 버튼/대상 텍스트 (가능하면 짧게 잡기)
+    # 예: "오른쪽에 있는 닫기 눌러줘" / "닫기 클릭해줘"
+    m = re.search(rf"(?:(?P<dir>{dir_pat})\s*(?:에\s*있는|쪽|쪽에\s*있는)?\s*)?(?P<label>.+?)\s*(?:버튼)?\s*(?:눌러\s*줘|눌러줘|클릭\s*해\s*줘|클릭해줘)$", s)
+    if not m:
+        return None
+
+    direction = m.group("dir")
+    label = m.group("label").strip().strip('"').strip("'")
+    if not label:
+        return None
+
+    from ui_do import do_click_text
+
+    ok = do_click_text(target_text=label, direction=direction or None, monitor_index=1)
+    return f"'{label}' 클릭 완료" if ok else f"'{label}'를 화면에서 찾지 못했어요."
+
 
 
 def run_actions(text: str) -> str:
+    # 0) UI 클릭형 명령(예: '닫기 눌러줘') 우선 처리
+    ui_r = _try_ui_click_command(text)
+    if ui_r:
+        return ui_r
+
     # 기존 앱 실행/검색 로직을 그대로 사용
     from command_actions import handle_open_app, handle_search_command, load_app_specs
 
@@ -41,20 +75,38 @@ def run_ui() -> str:
     return "UI 루프 종료"
 
 
+def run_do(press: str, direction: str = "", timeout_sec: float = 8.0) -> str:
+    from ui_do import do_click_text
+    ok = do_click_text(target_text=press, direction=(direction or None), monitor_index=1, timeout_sec=timeout_sec)
+    return "[DO] ok" if ok else "[DO] fail"
+
+
 def main():
     p = argparse.ArgumentParser(prog="ako_ai")
-    p.add_argument("--mode", choices=["actions", "ui"], default="actions")
+    p.add_argument("--mode", choices=["actions", "ui", "do"], default="actions")
     p.add_argument("--text", default="", help="actions 모드에서 사용할 텍스트 명령")
+    p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트 (예: 닫기/취소/확인)")
+    p.add_argument("--dir", default="", help="do 모드: 방향(예: 왼쪽/오른쪽/위/아래/왼쪽위/오른쪽아래)")
+    p.add_argument("--timeout", type=float, default=8.0, help="do 모드: 찾기 제한 시간(초)")
     args = p.parse_args()
 
-    if args.mode == "actions":
-        if not args.text.strip():
-            print('예: python app.py --mode=actions --text "크롬 켜줘"')
-            print('    또는: python app.py --mode=actions --text "크롬 켜줘"')
-            return
-        print(run_actions(args.text))
-    else:
-        print(run_ui())
+    
+if args.mode == "actions":
+    if not args.text.strip():
+        print('예: python app.py --mode=actions --text "크롬 켜줘"')
+        print('예: python app.py --mode=actions --text "오른쪽에 있는 닫기 눌러줘"')
+        return
+    print(run_actions(args.text))
+
+elif args.mode == "do":
+    if not args.press.strip():
+        print('예: python app.py --mode=do --press "닫기"')
+        print('예: python app.py --mode=do --press "닫기" --dir "왼쪽"')
+        return
+    print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout))
+
+else:
+    print(run_ui())
 
 
 if __name__ == "__main__":
