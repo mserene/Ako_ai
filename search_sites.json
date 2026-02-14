@@ -1,0 +1,65 @@
+{
+  "default": "google",
+  "sites": {
+    "google": {
+      "aliases": [
+        "구글",
+        "google"
+      ],
+      "type": "web",
+      "url": "https://www.google.com/search?q={q}"
+    },
+    "naver": {
+      "aliases": [
+        "네이버",
+        "naver"
+      ],
+      "type": "web",
+      "url": "https://search.naver.com/search.naver?query={q}"
+    },
+    "youtube": {
+      "aliases": [
+        "유튜브",
+        "youtube"
+      ],
+      "type": "web",
+      "url": "https://www.youtube.com/results?search_query={q}"
+    },
+    "wiki": {
+      "aliases": [
+        "위키",
+        "위키백과",
+        "wikipedia"
+      ],
+      "type": "web",
+      "url": "https://ko.wikipedia.org/w/index.php?search={q}"
+    },
+    "spotify": {
+      "aliases": [
+        "스포티파이",
+        "spotify"
+      ],
+      "type": "uri",
+      "uri": "spotify:search:{q}"
+    },
+    "chrome": {
+      "aliases": [
+        "크롬",
+        "chrome"
+      ],
+      "type": "browser",
+      "browser_app": "chrome",
+      "url": "https://www.google.com/search?q={q}"
+    },
+    "chatgpt": {
+      "aliases": [
+        "지피티",
+        "chatgpt",
+        "챗지피티",
+        "GPT"
+      ],
+      "type": "web",
+      "url": "https://chatgpt.com/"
+    }
+  }
+}

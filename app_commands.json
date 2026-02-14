@@ -1,0 +1,200 @@
+{
+  "apps": {
+    "discord": {
+      "aliases": [
+        "디스코드",
+        "디코"
+      ],
+      "process_name": "Discord.exe",
+      "window_title": "Discord",
+      "candidates": [
+        "%LOCALAPPDATA%\\Discord\\Update.exe",
+        "%LOCALAPPDATA%\\Discord\\app-*\\Discord.exe",
+        "%LOCALAPPDATA%\\DiscordCanary\\app-*\\Discord.exe",
+        "%LOCALAPPDATA%\\DiscordPTB\\app-*\\Discord.exe",
+        "%PROGRAMFILES%\\Discord\\Discord.exe",
+        "%PROGRAMFILES(X86)%\\Discord\\Discord.exe"
+      ],
+      "args": [
+        "--processStart",
+        "Discord.exe"
+      ],
+      "fallback_uri": null
+    },
+    "kakaotalk": {
+      "aliases": [
+        "카카오톡",
+        "카톡"
+      ],
+      "process_name": "KakaoTalk.exe",
+      "window_title": "KakaoTalk",
+      "candidates": [
+        "%PROGRAMFILES%\\Kakao\\KakaoTalk\\KakaoTalk.exe",
+        "%PROGRAMFILES(X86)%\\Kakao\\KakaoTalk\\KakaoTalk.exe",
+        "%LOCALAPPDATA%\\Kakao\\KakaoTalk\\KakaoTalk.exe",
+        "%LOCALAPPDATA%\\KakaoTalk\\KakaoTalk.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "chrome": {
+      "aliases": [
+        "크롬"
+      ],
+      "process_name": "chrome.exe",
+      "window_title": "Chrome",
+      "candidates": [
+        "%PROGRAMFILES%\\Google\\Chrome\\Application\\chrome.exe",
+        "%PROGRAMFILES(X86)%\\Google\\Chrome\\Application\\chrome.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "spotify": {
+      "aliases": [
+        "스포티파이"
+      ],
+      "process_name": "Spotify.exe",
+      "window_title": "Spotify",
+      "candidates": [
+        "%APPDATA%\\Spotify\\Spotify.exe",
+        "%LOCALAPPDATA%\\Spotify\\Spotify.exe"
+      ],
+      "args": [],
+      "fallback_uri": "spotify:"
+    },
+    "steam": {
+      "aliases": [
+        "스팀",
+        "steam"
+        
+      ],
+      "process_name": "steam.exe",
+      "window_title": "Steam",
+      "candidates": [
+        "%PROGRAMFILES%\\Steam\\Steam.exe",
+        "%PROGRAMFILES(X86)%\\Steam\\Steam.exe"
+      ],
+      "args": [],
+      "fallback_uri": "steam://open/main"
+    },
+    "vscode": {
+      "aliases": [
+        "코드"
+      ],
+      "process_name": "Code.exe",
+      "window_title": "Visual Studio Code",
+      "candidates": [
+        "%PROGRAMFILES%\\Microsoft VS Code\\Code.exe",
+        "%PROGRAMFILES(X86)%\\Microsoft VS Code\\Code.exe"
+      ],
+      "args": [],
+      "fallback_uri": "vscode:"
+    },
+    "roiter_client": {
+      "aliases": [
+        "라이엇 클라이언트",
+        "라이엇",
+        "라이어트"
+      ],
+      "process_name": "RiotClientUx.exe",
+      "window_title": "Riot Client",
+      "candidates": [
+        "%PROGRAMFILES%\\Riot Games\\Riot Client\\RiotClientUx.exe",
+        "%PROGRAMFILES(X86)%\\Riot Games\\Riot Client\\RiotClientUx.exe"
+      ],
+      "args": [],
+      "fallback_uri": "riotclient:"
+    },
+    "league_of_legends": {
+      "aliases": [
+        "롤",
+        "리그 오브 레전드"
+      ],
+      "process_name": "LeagueClient.exe",
+      "window_title": "League of Legends",
+      "candidates": [
+        "%PROGRAMFILES%\\Riot Games\\League of Legends\\LeagueClient.exe",
+        "%PROGRAMFILES(X86)%\\Riot Games\\League of Legends\\LeagueClient.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "valorant": {
+      "aliases": [
+        "발로란트"
+      ],
+      "process_name": "VALORANT.exe",
+      "window_title": "VALORANT",
+      "candidates": [
+        "D:\\Riot Games\\VALORANT\\Live\\VALORANT.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "notepad": {
+      "aliases": [
+        "메모장"
+      ],
+      "process_name": "notepad.exe",
+      "window_title": "Notepad",
+      "candidates": [
+        "%WINDIR%\\System32\\notepad.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "OBSStudio": {
+      "aliases": [
+        "녹화 프로그램",
+        "오비에스",
+        "OBS"
+      ],
+      "process_name": "obs64.exe",
+      "window_title": "OBS Studio",
+      "candidates": [
+        "%PROGRAMFILES%\\obs-studio\\bin\\64bit\\obs64.exe",
+        "%PROGRAMFILES(X86)%\\obs-studio\\bin\\64bit\\obs64.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "paint": {
+      "aliases": [
+        "그림판"
+      ],
+      "process_name": "mspaint.exe",
+      "window_title": "Paint",
+      "candidates": [
+        "%WINDIR%\\System32\\mspaint.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "calculator": {
+      "aliases": [
+        "계산기"
+      ],
+      "process_name": "Calculator.exe",
+      "window_title": "Calculator",
+      "candidates": [
+        "%WINDIR%\\System32\\Calculator.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    },
+    "EqualizerAPO": {
+      "aliases": [
+        "마이크 설정"
+      ],
+      "process_name": "EqualizerAPO.exe",
+      "window_title": "Equalizer APO Configuration Editor",
+      "candidates": [
+        "%PROGRAMFILES%\\EqualizerAPO\\Configuration Editor\\EqualizerAPO.exe",
+        "%PROGRAMFILES(X86)%\\EqualizerAPO\\Configuration Editor\\EqualizerAPO.exe"
+      ],
+      "args": [],
+      "fallback_uri": null
+    }
+  }
+}
