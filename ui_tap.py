@@ -1,16 +1,20 @@
 # ui_tap.py
 from __future__ import annotations
-
-from typing import Optional
-import time
+from typing import Optional, Tuple
 import pyautogui as pag
 
+# NOTE:
+# - Click-only implementation (no 'k' fallback) to avoid double-toggle.
+# - Designed to work in both YouTube fullscreen and windowed layouts assuming player is visible.
 
-def _dir_offsets(direction: Optional[str], w: int, h: int) -> tuple[int, int]:
+def _dir_offset(direction: Optional[str], w: int, h: int) -> Tuple[int, int]:
+    '''
+    방향에 따라 클릭 지점을 살짝 이동.
+    w,h 는 기준이 되는 화면 크기(주 모니터 기준).
+    '''
     if not direction:
         return (0, 0)
     d = direction.replace(" ", "")
-    # aliases
     aliases = {
         "좌": "left", "왼쪽": "left",
         "우": "right", "오른쪽": "right",
@@ -23,50 +27,34 @@ def _dir_offsets(direction: Optional[str], w: int, h: int) -> tuple[int, int]:
     }
     key = aliases.get(d, d)
 
-    dx = 0
-    dy = 0
+    dx = int(w * 0.12)
+    dy = int(h * 0.08)
 
-    # 플레이어 클릭은 중앙이 기본, 좌우는 조금 크게, 상하는 조금 작게 움직이기
-    step_x = int(w * 0.15)
-    step_y = int(h * 0.10)
+    if key == "left": return (-dx, 0)
+    if key == "right": return (dx, 0)
+    if key == "up": return (0, -dy)
+    if key == "down": return (0, dy)
+    if key == "upleft": return (-dx, -dy)
+    if key == "upright": return (dx, -dy)
+    if key == "downleft": return (-dx, dy)
+    if key == "downright": return (dx, dy)
+    return (0, 0)
 
-    if key in ("left", "upleft", "downleft"):
-        dx -= step_x
-    if key in ("right", "upright", "downright"):
-        dx += step_x
-    if key in ("up", "upleft", "upright"):
-        dy -= step_y
-    if key in ("down", "downleft", "downright"):
-        dy += step_y
+def youtube_toggle_click_only(direction: Optional[str] = None, move_duration: float = 0.05) -> None:
+    '''
+    유튜브 재생/일시정지 토글: 클릭 1회만 수행 (K 백업 없음)
 
-    return dx, dy
-
-
-def tap_youtube_toggle(direction: Optional[str] = None, backup_k: bool = True) -> bool:
-    """유튜브 재생/일시정지 토글.
-    - 전체화면: 화면 중앙 클릭이면 거의 항상 토글
-    - 창모드: 플레이어가 보이는 상태라면 화면 (0.50w, 0.40h) 근처가 플레이어에 걸릴 확률이 높음
-
-    direction: 왼쪽/오른쪽/위/아래/왼쪽위... (중복 오탐 줄이기용 클릭 지점 이동)
-    backup_k: 클릭 후 k 키를 눌러 토글을 한 번 더 시도(포커스가 플레이어에 있을 때만 동작)
-    """
+    - 기본 클릭 지점: 화면 기준 (0.50w, 0.40h)
+    - direction이 있으면 그 방향으로 살짝 이동
+    '''
     w, h = pag.size()
-    base_x = int(w * 0.50)
-    base_y = int(h * 0.40)
 
-    dx, dy = _dir_offsets(direction, w, h)
-    x = max(10, min(w - 10, base_x + dx))
-    y = max(10, min(h - 10, base_y + dy))
+    x = int(w * 0.50)
+    y = int(h * 0.40)
 
-    pag.moveTo(x, y, duration=0.05)
+    ox, oy = _dir_offset(direction, w, h)
+    x += ox
+    y += oy
+
+    pag.moveTo(x, y, duration=move_duration)
     pag.click()
-
-    # 클릭 직후 아주 잠깐 대기 (포커스/오버레이 반응)
-    time.sleep(0.10)
-
-    if backup_k:
-        # 유튜브 단축키: K (재생/일시정지)
-        # 포커스가 플레이어에 있다면 확실하게 토글됨.
-        pag.press("k")
-
-    return True
