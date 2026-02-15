@@ -169,10 +169,10 @@ def main():
         )
         voice_actions_loop(cfg)
 
-else:
-        print(run_ui())
+    else:
+            print(run_ui())
 
 
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
