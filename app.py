@@ -96,7 +96,7 @@ def run_actions(text: str) -> str:
     if r:
         return r
 
-    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에 고양이 검색해줘'"
+    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
 
 
 def run_ui() -> str:
@@ -120,12 +120,21 @@ def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: 
 
 def main():
     p = argparse.ArgumentParser(prog="ako_ai")
-    p.add_argument("--mode", choices=["actions", "ui", "do"], default="actions")
+    p.add_argument("--mode", choices=["actions", "ui", "do", "voice"], default="actions")
     p.add_argument("--text", default="", help="actions 모드에서 사용할 텍스트 명령")
     p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트 (예: 닫기/취소/확인)")
     p.add_argument("--tap", default="", help="do 모드: 탭/토글 액션 (예: youtube_toggle)")
     p.add_argument("--dir", default="", help="do 모드: 방향(예: 왼쪽/오른쪽/위/아래/왼쪽위/오른쪽아래)")
     p.add_argument("--timeout", type=float, default=8.0, help="do 모드: 찾기 제한 시간(초)")
+    # voice 모드(마이크 음성 인식) 설정
+    p.add_argument("--wake", default="", help="voice 모드: 웨이크워드(예: 아코). 비우면 항상 실행")
+    p.add_argument("--device", type=int, default=-1, help="voice 모드: 입력 장치 인덱스(sounddevice). -1이면 기본")
+    p.add_argument("--sr", type=int, default=16000, help="voice 모드: 샘플레이트")
+    p.add_argument("--model", default="small", help="voice 모드: faster-whisper 모델명/경로 (tiny/base/small/medium/large-v3 등)")
+    p.add_argument("--lang", default="ko", help="voice 모드: 인식 언어(ko/en 등)")
+    p.add_argument("--silence", type=float, default=0.9, help="voice 모드: 무음 지속시간(초) 이면 종료")
+    p.add_argument("--thresh", type=float, default=0.012, help="voice 모드: 무음 판정 RMS 임계값(환경에 맞게 조절)")
+
     args = p.parse_args()
 
     
@@ -145,7 +154,22 @@ def main():
             return
         print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout, tap=args.tap))
 
-    else:
+    
+    elif args.mode == "voice":
+        from voice_loop import VoiceConfig, voice_actions_loop
+
+        cfg = VoiceConfig(
+            device=(None if args.device == -1 else args.device),
+            samplerate=int(args.sr),
+            model=str(args.model),
+            language=str(args.lang),
+            wake_word=str(args.wake),
+            silence_sec=float(args.silence),
+            silence_threshold=float(args.thresh),
+        )
+        voice_actions_loop(cfg)
+
+else:
         print(run_ui())
 
 
