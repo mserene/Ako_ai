@@ -120,7 +120,7 @@ def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: 
 
 def main():
     p = argparse.ArgumentParser(prog="ako_ai")
-    p.add_argument("--mode", choices=["actions", "ui", "do", "voice"], default="actions")
+    p.add_argument("--mode", choices=["gui","actions","ui","do","voice"], default="gui")
     p.add_argument("--text", default="", help="actions 모드에서 사용할 텍스트 명령")
     p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트 (예: 닫기/취소/확인)")
     p.add_argument("--tap", default="", help="do 모드: 탭/토글 액션 (예: youtube_toggle)")
@@ -137,7 +137,11 @@ def main():
 
     args = p.parse_args()
 
-    
+    if args.mode == "gui":
+        from ako_gui import main as gui_main
+        gui_main()
+        return
+
     if args.mode == "actions":
         if not args.text.strip():
             print('예: python app.py --mode=actions --text "크롬 켜줘"')
@@ -154,7 +158,9 @@ def main():
             return
         print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout, tap=args.tap))
 
-    
+    elif args.mode == "ui":
+        print(run_ui())
+
     elif args.mode == "voice":
         from voice_loop import VoiceConfig, voice_actions_loop
 
@@ -170,9 +176,10 @@ def main():
         voice_actions_loop(cfg)
 
     else:
-            print(run_ui())
+        # argparse choices로 사실상 도달하지 않지만, 안전망
+        print(run_ui())
 
 
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()

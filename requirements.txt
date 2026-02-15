@@ -1,0 +1,12 @@
+faster-whisper
+huggingface_hub
+mss
+numpy
+pillow
+psutil
+pyautogui
+pyinstaller>=6.0
+pytesseract
+requests
+sounddevice
+tqdm

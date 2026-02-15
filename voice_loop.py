@@ -203,3 +203,68 @@ def voice_actions_loop(cfg: VoiceConfig):
         result = run_actions(text)
         print(f"[VOICE] 결과: {result}")
 
+
+
+# -----------------------------------------------------------------------------
+# GUI/스레드용: stop_event로 중단 가능한 음성 루프
+# -----------------------------------------------------------------------------
+from typing import Callable
+import threading
+
+def gui_voice_loop(
+    cfg: VoiceConfig,
+    stop_event: threading.Event,
+    on_text: Callable[[str], None],
+    on_error: Callable[[str], None] | None = None,
+):
+    """
+    GUI에서 별도 스레드로 돌릴 수 있는 음성 루프.
+    - stop_event가 set 되면 즉시 종료
+    - 텍스트가 인식되면 on_text(text) 호출
+    - 오류/의존성 문제는 on_error(msg)로 전달
+    """
+    def _err(msg: str):
+        if on_error:
+            try:
+                on_error(msg)
+            except Exception:
+                pass
+
+    while not stop_event.is_set():
+        try:
+            text = listen_once(cfg)
+        except Exception as e:
+            _err(str(e))
+            # 의존성 문제/마이크 문제일 때는 너무 빡세게 루프 돌지 않게 잠깐 쉼
+            time.sleep(0.6)
+            continue
+
+        if stop_event.is_set():
+            break
+
+        text = (text or "").strip()
+        if not text:
+            continue
+
+        if not _passes_wakeword(text, cfg.wake_word):
+            continue
+
+        # 웨이크워드 제거
+        if cfg.wake_word:
+            low = text.lower()
+            w = cfg.wake_word.lower()
+            if low.startswith(w):
+                text = text[len(cfg.wake_word):].lstrip(" ,.!?\t")
+            if text.startswith("야"):
+                text = text[1:].lstrip()
+
+        text = (text or "").strip()
+        if not text:
+            continue
+
+        try:
+            on_text(text)
+        except Exception as e:
+            _err(f"콜백 오류: {e}")
+            time.sleep(0.2)
+            continue
