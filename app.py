@@ -96,7 +96,7 @@ def run_actions(text: str) -> str:
     if r:
         return r
 
-    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
+    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에 고양이 검색해줘'"
 
 
 def run_ui() -> str:
