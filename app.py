@@ -38,8 +38,8 @@ def _try_youtube_toggle_command(text: str) -> str | None:
 
     # 재생/일시정지 의도
     if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s) and re.search(r"(눌러\s*줘|눌러줘|해\s*줘|해줘|해\s*줄래|해줄래)", s):
-        from ui_tap import tap_youtube_toggle
-        tap_youtube_toggle(direction=direction, backup_k=True)
+        from ui_tap import youtube_toggle_click_only as tap_youtube_toggle
+        tap_youtube_toggle(direction=direction)
         return "유튜브 토글 완료"
     return None
 
