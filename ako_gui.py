@@ -7,9 +7,55 @@ from tkinter import ttk, filedialog, messagebox
 from core.controller import AkoController
 from core.config import load_config, save_config
 from voice_loop import VoiceConfig
+from core.config import is_writable_dir, default_model_dir
 
 
 class AkoGUI(tk.Tk):
+        # ---- model dir handlers ----
+    def _change_model_dir(self):
+        # (예전 바인딩 호환용 별칭)
+        return self.on_change_model_dir()
+
+    def on_change_model_dir(self):
+        chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
+        if not chosen:
+            return
+
+        # 선택 폴더 검증 (쓰기 불가면 config 건드리지 않고 기본값 유지)
+        if not is_writable_dir(chosen):
+            messagebox.showerror("폴더 오류", "선택한 폴더에 저장할 수 없어요.\n기본 경로를 계속 사용할게요.")
+            self._append_log(f"[MODEL] 적용 실패(쓰기 불가): {chosen}")
+            # 화면 표시를 현재 유효 경로로 되돌림
+            if hasattr(self, "model_path_var"):
+                self.model_path_var.set(self.cfg.effective_model_dir)
+            return
+
+        # 저장 + 적용
+        self.cfg.model_dir = chosen
+        save_config(self.cfg, self.cfg_path)
+
+        eff = self.cfg.effective_model_dir
+        self.controller.set_models_root(eff)
+        if hasattr(self, "model_path_var"):
+            self.model_path_var.set(eff)
+
+        self._append_log(f"[MODEL] 저장 위치 변경: {eff}")
+        self._refresh_ui()
+
+    def on_reset_model_dir(self):
+        # 기본값으로 재설정 (config에서 비우면 effective가 기본으로 떨어짐)
+        self.cfg.model_dir = ""
+        save_config(self.cfg, self.cfg_path)
+
+        eff = self.cfg.effective_model_dir  # 여기서 기본 경로가 선택됨
+        self.controller.set_models_root(eff)
+        if hasattr(self, "model_path_var"):
+            self.model_path_var.set(eff)
+
+        self._append_log(f"[MODEL] 기본값으로 재설정: {eff}")
+        self._refresh_ui()
+
+
     def __init__(self):
         super().__init__()
         self.title("Ako")
@@ -58,8 +104,7 @@ class AkoGUI(tk.Tk):
                 f.write("ok")
             os.remove(testfile)
         except Exception as e:
-            messagebox.showerror("폴더 오류", f"선택한 폴더에 저장할 수 없어요:
-{e}")
+            messagebox.showerror("폴더 오류", f"선택한 폴더에 저장할 수 없어요:{e}")
             return
 
         # persist config
@@ -131,11 +176,11 @@ class AkoGUI(tk.Tk):
         # 모델 저장 위치
         path_row = ttk.Frame(box)
         path_row.pack(fill="x", pady=(10, 0))
-        ttk.Label(path_row, text="모델 저장 위치:").pack(side="left")
+        ttk.Label(path_row, text="모델 저장 위치:\n").pack(side="left")
         self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
         self.model_path_label = ttk.Label(path_row, textvariable=self.model_path_var)
         self.model_path_label.pack(side="left", padx=(8, 8), fill="x", expand=True)
-        ttk.Button(path_row, text="변경...", command=self.on_change_model_dir).pack(side="right")
+        ttk.Button(path_row, text="기본값", command=self.on_reset_model_dir).pack(side="right", padx=(6,0))
 
 
     def _build_command(self):
