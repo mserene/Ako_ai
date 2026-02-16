@@ -41,6 +41,53 @@ class AkoGUI(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _change_model_dir(self):
+        """Back-compat alias used by some UI bindings."""
+        return self.on_change_model_dir()
+
+    def on_change_model_dir(self):
+        chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
+        if not chosen:
+            return
+
+        # writable check
+        try:
+            os.makedirs(chosen, exist_ok=True)
+            testfile = os.path.join(chosen, ".ako_write_test")
+            with open(testfile, "w", encoding="utf-8") as f:
+                f.write("ok")
+            os.remove(testfile)
+        except Exception as e:
+            messagebox.showerror("폴더 오류", f"선택한 폴더에 저장할 수 없어요:
+{e}")
+            return
+
+        # persist config
+        self.cfg.model_dir = chosen
+        save_config(self.cfg, self.cfg_path)
+
+        # update UI + controller
+        effective = self.cfg.effective_model_dir
+        self.model_path_var.set(effective)
+
+        # controller may implement either method or attribute
+        try:
+            self.controller.set_models_root(effective)
+        except Exception:
+            try:
+                setattr(self.controller, "models_root", effective)
+            except Exception:
+                pass
+
+        # log
+        try:
+            self.controller.log(f"모델 저장 위치 변경: {effective}")
+        except Exception:
+            self._append_log(f"모델 저장 위치 변경: {effective}")
+
+        self._refresh_ui()
+
+
     # ---------------- UI blocks ----------------
     def _build_top(self):
         top = ttk.Frame(self, padding=12)
@@ -88,7 +135,7 @@ class AkoGUI(tk.Tk):
         self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
         self.model_path_label = ttk.Label(path_row, textvariable=self.model_path_var)
         self.model_path_label.pack(side="left", padx=(8, 8), fill="x", expand=True)
-        ttk.Button(path_row, text="변경...", command=self._change_model_dir).pack(side="right")
+        ttk.Button(path_row, text="변경...", command=self.on_change_model_dir).pack(side="right")
 
 
     def _build_command(self):
