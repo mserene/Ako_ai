@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import os
+import sys
 from tkinter import ttk, filedialog, messagebox
 
 from core.controller import AkoController
@@ -9,6 +10,10 @@ from core.config import load_config, save_config
 from voice_loop import VoiceConfig
 from core.config import is_writable_dir, default_model_dir
 
+def resource_path(rel_path: str) -> str:
+    # PyInstaller(onedir/onefile) 모두 대응
+    base = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base, rel_path)
 
 class AkoGUI(tk.Tk):
         # ---- model dir handlers ----
@@ -58,6 +63,10 @@ class AkoGUI(tk.Tk):
 
     def __init__(self):
         super().__init__()
+        try:
+            self.iconbitmap(resource_path(os.path.join("assets", "ako.ico")))
+        except Exception:
+            pass
         self.title("Ako")
         self.geometry("620x420")
         self.minsize(620, 420)
