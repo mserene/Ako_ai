@@ -100,7 +100,7 @@ def _transcribe_faster_whisper(audio, cfg: VoiceConfig) -> str:
     """faster-whisper가 있으면 그걸로 오프라인 STT."""
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(cfg.model, device="auto", compute_type="auto")
+    model = WhisperModel(cfg.model, device="cpu", compute_type="int8")
 
     # faster-whisper는 numpy float32 mono / sample_rate 전달 가능
     segments, info = model.transcribe(
