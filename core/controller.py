@@ -8,13 +8,14 @@ from typing import Callable, Optional
 from voice_loop import VoiceConfig, gui_voice_loop
 from bootstrap import BootstrapStatus, ensure_whisper_model_async
 
-
 LogFn = Callable[[str], None]
 
 
 def _run_actions(text: str) -> str:
+    # Lazy import to avoid circular imports at import-time.
     from app import run_actions
     return run_actions(text)
+
 
 def _now() -> str:
     return datetime.now().strftime("%H:%M:%S")
@@ -38,14 +39,15 @@ class AkoController:
     _voice_thread: Optional[threading.Thread] = field(default=None, init=False, repr=False)
     _voice_stop: Optional[threading.Event] = field(default=None, init=False, repr=False)
 
-def set_models_root(self, path: str) -> None:
-    self.models_root = (path or "").strip()
-    if self.models_root:
-        self.log(f"모델 저장 위치 설정: {self.models_root}")
-    else:
-        self.log("모델 저장 위치 기본값 사용")
+    # ---------------- config ----------------
+    def set_models_root(self, path: str) -> None:
+        self.models_root = (path or "").strip()
+        if self.models_root:
+            self.log(f"모델 저장 위치 설정: {self.models_root}")
+        else:
+            self.log("모델 저장 위치 기본값 사용")
 
-
+    # ---------------- logging ----------------
     def log(self, msg: str) -> None:
         line = f"[{_now()}] {msg}"
         self.logs.append(line)
@@ -117,8 +119,7 @@ def set_models_root(self, path: str) -> None:
         else:
             self.stop_voice()
 
-    
-def start_voice(self, cfg: VoiceConfig) -> None:
+    def start_voice(self, cfg: VoiceConfig) -> None:
         if not self.powered_on:
             self.log("전원이 OFF라서 음성 인식을 시작할 수 없어요.")
             return
@@ -166,9 +167,15 @@ def start_voice(self, cfg: VoiceConfig) -> None:
             t.start()
 
         # 백그라운드에서 준비하고, 끝나면 _after_model_ready 콜백으로 시작
-        ensure_whisper_model_async(cfg.model, log=self.log, status=self.bootstrap_status, on_done=_after_model_ready, models_root=self.models_root)
+        ensure_whisper_model_async(
+            cfg.model,
+            log=self.log,
+            status=self.bootstrap_status,
+            on_done=_after_model_ready,
+            models_root=self.models_root,
+        )
 
-def stop_voice(self) -> None:
+    def stop_voice(self) -> None:
         if self._voice_stop is not None:
             self._voice_stop.set()
         if self._voice_thread and self._voice_thread.is_alive():
