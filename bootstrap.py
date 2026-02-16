@@ -21,8 +21,10 @@ def get_user_data_dir() -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
-def get_models_dir() -> str:
-    path = os.path.join(get_user_data_dir(), "models")
+def get_models_dir(models_root: str | None = None) -> str:
+    """Return models directory. If models_root is provided, use it."""
+    root = (models_root or "").strip() if models_root is not None else ""
+    path = root if root else os.path.join(get_user_data_dir(), "models")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -36,6 +38,7 @@ def ensure_whisper_model(
     model: str,
     log: Optional[LogFn] = None,
     force: bool = False,
+    models_root: str | None = None,
 ) -> str:
     """
     faster-whisper CTranslate2 모델을 사용자 데이터 폴더에 준비한다.
@@ -44,7 +47,7 @@ def ensure_whisper_model(
     반환: 로컬 모델 경로
     """
     model = (model or "small").strip()
-    models_dir = get_models_dir()
+    models_dir = get_models_dir(models_root)
     out_dir = os.path.join(models_dir, model.replace("/", "_"))
     # 모델이 이미 준비되었는지 간단히 확인
     model_bin = os.path.join(out_dir, "model.bin")
@@ -79,6 +82,7 @@ def ensure_whisper_model_async(
     log: Optional[LogFn],
     status: BootstrapStatus,
     on_done: Optional[Callable[[Optional[str]], None]] = None,
+    models_root: str | None = None,
 ) -> None:
     """
     GUI가 멈추지 않도록 백그라운드 스레드에서 모델을 준비한다.
@@ -87,7 +91,7 @@ def ensure_whisper_model_async(
         status.downloading = True
         status.last_error = ""
         try:
-            path = ensure_whisper_model(model, log=log)
+            path = ensure_whisper_model(model, log=log, models_root=models_root)
             status.ready = True
             if on_done:
                 on_done(path)

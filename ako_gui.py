@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+import os
+from tkinter import ttk, filedialog, messagebox
 
 from core.controller import AkoController
+from core.config import load_config, save_config
 from voice_loop import VoiceConfig
 
 
@@ -15,6 +17,11 @@ class AkoGUI(tk.Tk):
         self.minsize(620, 420)
 
         self.controller = AkoController(log_fn=self._append_log)
+
+        # load persistent config
+        self.cfg, self.cfg_path = load_config()
+        # apply model storage root to controller
+        self.controller.set_models_root(self.cfg.effective_model_dir)
 
         # ---------- styles ----------
         try:
@@ -73,6 +80,16 @@ class AkoGUI(tk.Tk):
         self.model_entry = ttk.Entry(opt, width=10)
         self.model_entry.insert(0, "small")
         self.model_entry.pack(side="left", padx=(6, 0))
+
+        # 모델 저장 위치
+        path_row = ttk.Frame(box)
+        path_row.pack(fill="x", pady=(10, 0))
+        ttk.Label(path_row, text="모델 저장 위치:").pack(side="left")
+        self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
+        self.model_path_label = ttk.Label(path_row, textvariable=self.model_path_var)
+        self.model_path_label.pack(side="left", padx=(8, 8), fill="x", expand=True)
+        ttk.Button(path_row, text="변경...", command=self._change_model_dir).pack(side="right")
+
 
     def _build_command(self):
         box = ttk.LabelFrame(self, text="명령 입력", padding=12)

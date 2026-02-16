@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from voice_loop import VoiceConfig, gui_voice_loop
-from bootstrap import BootstrapStatus, ensure_whisper_model_async, get_models_dir
+from bootstrap import BootstrapStatus, ensure_whisper_model_async
 
 
 LogFn = Callable[[str], None]
@@ -28,12 +28,23 @@ class AkoController:
     voice_on: bool = False
     command_on: bool = False
 
+    # user-selected model storage directory (empty => default)
+    models_root: str = ""
+
     logs: list[str] = field(default_factory=list)
 
     bootstrap_status: BootstrapStatus = field(default_factory=BootstrapStatus)
 
     _voice_thread: Optional[threading.Thread] = field(default=None, init=False, repr=False)
     _voice_stop: Optional[threading.Event] = field(default=None, init=False, repr=False)
+
+def set_models_root(self, path: str) -> None:
+    self.models_root = (path or "").strip()
+    if self.models_root:
+        self.log(f"모델 저장 위치 설정: {self.models_root}")
+    else:
+        self.log("모델 저장 위치 기본값 사용")
+
 
     def log(self, msg: str) -> None:
         line = f"[{_now()}] {msg}"
@@ -155,7 +166,7 @@ def start_voice(self, cfg: VoiceConfig) -> None:
             t.start()
 
         # 백그라운드에서 준비하고, 끝나면 _after_model_ready 콜백으로 시작
-        ensure_whisper_model_async(cfg.model, log=self.log, status=self.bootstrap_status, on_done=_after_model_ready)
+        ensure_whisper_model_async(cfg.model, log=self.log, status=self.bootstrap_status, on_done=_after_model_ready, models_root=self.models_root)
 
 def stop_voice(self) -> None:
         if self._voice_stop is not None:
