@@ -613,3 +613,29 @@ def handle_search_command(
     _start_uri(url)
     name = site.aliases[0] if site.aliases else site.key
     return f"{name}에서 검색했어요."
+
+def run_text(user_text: str) -> str:
+    """
+    텍스트 명령을 해석해서 실행하고, 사용자에게 보여줄 짧은 결과 문장을 반환한다.
+    """
+    txt = (user_text or "").strip()
+    if not txt:
+        return "명령이 비어 있어요."
+
+    # 1) 앱 실행/포커스
+    try:
+        msg = handle_open_app(txt)
+        if msg:
+            return msg
+    except Exception:
+        pass
+
+    # 2) 검색
+    try:
+        msg = handle_search_command(txt)
+        if msg:
+            return msg
+    except Exception:
+        pass
+
+    return "아직 그 명령은 못 해요. (앱 실행/검색 위주로 지원 중)"
