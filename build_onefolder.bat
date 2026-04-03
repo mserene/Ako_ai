@@ -1,7 +1,9 @@
 @echo off
+setlocal
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
+chcp 65001 >nul
 
 set "DIST_ROOT=dist"
 set "APP_DIR=dist\Ako-ai"
@@ -68,6 +70,14 @@ if "%PYTHON_EXE%"=="" (
 )
 
 REM --- Ensure venv (Python 3.12 recommended) ---
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" -V >nul 2>&1
+  if errorlevel 1 (
+    echo [WARN] 기존 .venv 가 손상되어 다시 생성합니다.
+    rmdir /s /q ".venv"
+  )
+)
+
 if not exist ".venv\Scripts\python.exe" (
   echo [INFO] Creating venv...
   "%PYTHON_EXE%" -m venv .venv
@@ -97,9 +107,7 @@ if exist "%APP_DIR%" (
   move "%APP_DIR%" "%APP_BACKUP%" >nul
 )
 
-
 if exist "build" rmdir /s /q "build"
-
 
 REM --- Build using spec (options must live in .spec) ---
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean "Ako-ai.spec"
