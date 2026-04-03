@@ -559,7 +559,7 @@ def _match_site(site_text: str, sites: Dict[str, SearchSite]) -> Optional[Search
 
 _SEARCH_VERB = r"(?:검색\s*해\s*줘(?:요|라)?|검색해(?:요|라)?|검색|찾아\s*줘(?:요|라)?|찾아(?:요|라)?|서치\s*해\s*줘(?:요|라)?|서치해(?:요|라)?|서치)"
 _SEARCH_PATTERNS = [
-    re.compile(fr"(?P<site>.+?)(?:에|에서)\s*(?P<q>.+?)\s*{_SEARCH_VERB}\s*$"),
+    re.compile(fr"(?P<site>.+?)(?:에서|에)\s*(?P<q>.+?)\s*{_SEARCH_VERB}\s*$"),
     re.compile(fr"(?P<q>.+?)\s*{_SEARCH_VERB}\s*$"),
 ]
 

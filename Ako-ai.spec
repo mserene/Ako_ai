@@ -24,6 +24,7 @@ SITE_PKG = find_site_packages()
 
 hiddenimports = [
     "ako_gui",
+    "llm_agent",
     *collect_submodules("core"),
     "faster_whisper",
     "ctranslate2",
@@ -33,11 +34,14 @@ hiddenimports = [
     "mss",
     "numpy",
     "sounddevice",
+    "requests",
+    "ollama",
 ]
 
 datas = [
     (os.path.join(ROOT, "app_commands.json"), "."),
     (os.path.join(ROOT, "search_sites.json"), "."),
+    (os.path.join(ROOT, "llm_agent.py"), "."),
 ]
 
 ico = os.path.join(ROOT, "assets", "ako.ico")
