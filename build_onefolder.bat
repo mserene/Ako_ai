@@ -7,6 +7,7 @@ set "DIST_ROOT=dist"
 set "APP_DIR=dist\Ako-ai"
 set "APP_BACKUP=dist\Ako-ai_backup"
 set "BUILD_OK=0"
+set "PYTHON_EXE="
 
 REM --- Ollama 설치 확인 및 자동 설치 ---
 where ollama >nul 2>&1
@@ -39,13 +40,59 @@ if errorlevel 1 (
   echo [INFO] exaone3.5:7.8b 모델 이미 있음
 )
 
+REM --- Python 설치 확인 및 자동 설치 ---
+where py >nul 2>&1
+if not errorlevel 1 (
+  set "PYTHON_EXE=py -3.12"
+) else (
+  where python >nul 2>&1
+  if not errorlevel 1 (
+    set "PYTHON_EXE=python"
+  ) else (
+    echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
+
+    where winget >nul 2>&1
+    if not errorlevel 1 (
+      winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+    ) else (
+      echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
+      powershell -NoProfile -Command ^
+        "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
+    )
+
+    if errorlevel 1 (
+      echo [ERROR] Python 자동 설치 실패
+      goto :fail
+    )
+
+    REM 설치 직후 PATH 갱신 전을 대비한 기본 경로 체크
+    if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
+      set "PYTHON_EXE=\"%LocalAppData%\Programs\Python\Python312\python.exe\""
+    ) else if exist "%ProgramFiles%\Python312\python.exe" (
+      set "PYTHON_EXE=\"%ProgramFiles%\Python312\python.exe\""
+    ) else (
+      where py >nul 2>&1
+      if not errorlevel 1 (
+        set "PYTHON_EXE=py -3.12"
+      ) else (
+        where python >nul 2>&1
+        if not errorlevel 1 (
+          set "PYTHON_EXE=python"
+        )
+      )
+    )
+  )
+)
+
+if "%PYTHON_EXE%"=="" (
+  echo [ERROR] Python 실행 파일을 찾지 못했습니다.
+  goto :fail
+)
+
 REM --- Ensure venv (Python 3.12 recommended) ---
 if not exist ".venv\Scripts\python.exe" (
   echo [INFO] Creating venv...
-  py -3.12 -m venv .venv 2>nul
-  if not exist ".venv\Scripts\python.exe" (
-    python -m venv .venv
-  )
+  %PYTHON_EXE% -m venv .venv
 )
 if not exist ".venv\Scripts\python.exe" (
   echo [ERROR] Python 가상환경 생성 실패
