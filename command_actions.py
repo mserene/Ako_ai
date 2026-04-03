@@ -614,6 +614,58 @@ def handle_search_command(
     name = site.aliases[0] if site.aliases else site.key
     return f"{name}에서 검색했어요."
 
+# -----------------------------------------------------------------------------
+# app.py에서 분리: UI 명령 파서 (app.py는 진입점만 담당하도록)
+# -----------------------------------------------------------------------------
+_DIR_PAT = r"(왼쪽\s*위|오른쪽\s*위|왼쪽\s*아래|오른쪽\s*아래|왼쪽|오른쪽|위|아래|좌상|우상|좌하|우하)"
+
+
+def handle_youtube_toggle(text: str) -> Optional[str]:
+    """'유튜브 재생 눌러줘', '유튜브 일시정지 눌러줘' 등을 처리."""
+    s = (text or "").strip()
+    if not s or "유튜브" not in s:
+        return None
+
+    dm = re.search(_DIR_PAT, s)
+    direction = dm.group(0) if dm else None
+
+    if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s) and \
+       re.search(r"(눌러\s*줘|눌러줘|해\s*줘|해줘|해\s*줄래|해줄래)", s):
+        try:
+            from ui_tap import youtube_toggle_click_only
+            youtube_toggle_click_only(direction=direction)
+            return "유튜브 토글 완료"
+        except Exception as e:
+            return f"유튜브 토글 실패: {e}"
+    return None
+
+
+def handle_ui_click(text: str) -> Optional[str]:
+    """'닫기 눌러줘', '오른쪽 위에 있는 닫기 눌러줘' 등 UI 클릭 명령 처리."""
+    s = (text or "").strip()
+    if not s:
+        return None
+
+    m = re.search(
+        rf"(?:(?P<dir>{_DIR_PAT})\s*(?:에\s*있는|쪽|쪽에\s*있는)?\s*)?(?P<label>.+?)\s*(?:버튼)?\s*(?:눌러\s*줘|눌러줘|클릭\s*해\s*줘|클릭해줘)$",
+        s,
+    )
+    if not m:
+        return None
+
+    direction = m.group("dir")
+    label = m.group("label").strip().strip('"').strip("'")
+    if not label:
+        return None
+
+    try:
+        from ui_do import do_click_text
+        ok = do_click_text(target_text=label, direction=direction or None, monitor_index=1)
+        return f"'{label}' 클릭 완료" if ok else f"'{label}'를 화면에서 찾지 못했어요."
+    except Exception as e:
+        return f"UI 클릭 오류: {e}"
+
+
 def run_text(user_text: str) -> str:
     """
     텍스트 명령을 해석해서 실행하고, 사용자에게 보여줄 짧은 결과 문장을 반환한다.

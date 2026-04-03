@@ -1,7 +1,10 @@
 # ui_loop.py
 from __future__ import annotations
-import time
+
 import hashlib
+import logging
+import time
+
 import numpy as np
 import pyautogui as pag
 
@@ -9,83 +12,99 @@ from ui_capture import grab_screen
 from ui_ocr import ocr_lines
 from ui_policy import decide_action
 
+logger = logging.getLogger(__name__)
+
+
 def screen_fingerprint(bgra: np.ndarray) -> str:
-    """
-    화면이 '같은지' 판단하기 위한 가벼운 지문.
-    너무 정밀할 필요 없어서 다운샘플로 빠르게 만듭니다.
-    """
-    # BGRA -> BGR 일부만 샘플링
-    small = bgra[::20, ::20, :3]  # 빠른 샘플링
-    return hashlib.md5(small.tobytes()).hexdigest()
+    """화면 변화 감지용 경량 해시."""
+    try:
+        small = bgra[::20, ::20, :3]
+        return hashlib.md5(small.tobytes()).hexdigest()
+    except Exception as e:
+        logger.warning(f"fingerprint 생성 실패: {e}")
+        return ""
+
 
 def crop_regions(bgra: np.ndarray):
-    """
-    버튼이 있을 법한 영역만 OCR 대상으로 사용.
-    - 중앙 팝업 영역(대화상자)
-    - 우하단 영역(확인/취소/다음 버튼이 자주 있음)
-    """
+    """버튼이 있을 법한 영역만 OCR 대상으로 잘라냄."""
     h, w = bgra.shape[0], bgra.shape[1]
-
-    # 중앙 팝업: 화면 가운데 큰 박스
-    center = bgra[int(h*0.22):int(h*0.88), int(w*0.18):int(w*0.82), :]
-
-    # 우하단: 버튼들이 몰리는 곳 (유튜브 자막(하단 중앙) 회피에 도움)
-    br = bgra[int(h*0.55):int(h*0.98), int(w*0.55):int(w*0.98), :]
-
+    center = bgra[int(h * 0.22):int(h * 0.88), int(w * 0.18):int(w * 0.82), :]
+    br = bgra[int(h * 0.55):int(h * 0.98), int(w * 0.55):int(w * 0.98), :]
     return [center, br]
+
 
 def ui_mvp_loop(monitor_index: int = 1, interval_sec: float = 0.8):
     """
     MVP 루프:
-    - 화면 캡처
-    - (중앙/우하단) OCR
-    - policy에서 '정말로 눌러도 되는지' 결정
-    - 같은 화면에서 같은 행동 반복 금지
+    - 화면 캡처 → OCR → policy 판단 → 클릭
+    - 같은 화면에서 같은 버튼 반복 클릭 방지
+    - 에러 발생 시 루프 중단 없이 계속 진행
     """
+    logger.info("[UI] MVP loop 시작 (Ctrl+C로 종료)")
     print("[UI] MVP loop 시작 (Ctrl+C로 종료)")
 
-    acted = set()  # (fingerprint, target_word)
-    last_fp = None
-    stable_count = 0
+    acted: set = set()
+    last_fp = ""
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 10
 
     while True:
-        bgra = grab_screen(monitor_index)
+        # 연속 오류가 너무 많으면 잠시 쉬고 카운터 리셋
+        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+            logger.warning(f"[UI] 연속 오류 {consecutive_errors}회 → 3초 대기 후 재시도")
+            time.sleep(3.0)
+            consecutive_errors = 0
+
+        # 화면 캡처
+        try:
+            bgra = grab_screen(monitor_index)
+        except Exception as e:
+            logger.error(f"[UI] 화면 캡처 실패: {e}")
+            consecutive_errors += 1
+            time.sleep(interval_sec)
+            continue
+
+        # 지문 계산
         fp = screen_fingerprint(bgra)
-
-        # 화면이 바뀌면(지문이 바뀌면) 반복 차단 기록 일부를 리셋
-        if fp == last_fp:
-            stable_count += 1
-        else:
-            stable_count = 0
+        if fp != last_fp:
             last_fp = fp
-            # 화면 전환 시 과거 기록을 너무 오래 들고 있으면 못 누를 수 있어,
-            # 최소한만 유지하고 정리합니다.
-            # (화면 전환이 일어났다면 이전 화면의 acted는 의미가 줄어듦)
-            acted = set()
+            acted = set()  # 화면이 바뀌면 반복 차단 초기화
 
-        # OCR은 버튼 있을 법한 ROI만 수행
+        # OCR
         lines_all = []
+        ocr_failed = False
         for crop in crop_regions(bgra):
             try:
                 lines_all.extend(ocr_lines(crop, lang="kor+eng"))
             except Exception as e:
-                # OCR 실패해도 루프는 계속
-                print(f"[UI] OCR error: {e}")
-                lines_all = []
+                logger.warning(f"[UI] OCR 실패: {e}")
+                ocr_failed = True
                 break
 
-        target, key, reason = decide_action(lines_all)
-
-        if not target:
-            # 너무 스팸이면 interval 조절하거나 여기 출력 줄여도 됨
-            print(f"[UI] 버튼 단어 미감지 / skip ({reason})")
+        if ocr_failed:
+            consecutive_errors += 1
             time.sleep(interval_sec)
             continue
 
-        # 같은 화면에서 같은 행동 반복 차단
+        consecutive_errors = 0  # 성공 시 카운터 리셋
+
+        # 정책 판단
+        try:
+            target, key, reason = decide_action(lines_all)
+        except Exception as e:
+            logger.error(f"[UI] decide_action 오류: {e}")
+            time.sleep(interval_sec)
+            continue
+
+        if not target:
+            logger.debug(f"[UI] 버튼 미감지: {reason}")
+            time.sleep(interval_sec)
+            continue
+
+        # 같은 화면에서 같은 버튼 반복 차단
         act_key = (fp, target)
         if act_key in acted:
-            print(f"[UI] '{target}' 감지(같은 화면 재실행 차단) → skip")
+            logger.debug(f"[UI] '{target}' 중복 차단")
             time.sleep(interval_sec)
             continue
 
@@ -93,8 +112,10 @@ def ui_mvp_loop(monitor_index: int = 1, interval_sec: float = 0.8):
         try:
             pag.press(key)
             acted.add(act_key)
-            print(f"[UI] '{target}' 감지 → key={key} ({reason})")
+            msg = f"[UI] '{target}' 감지 → key={key} ({reason})"
+            logger.info(msg)
+            print(msg)
         except Exception as e:
-            print(f"[UI] key press 실패: {e}")
+            logger.error(f"[UI] key press 실패 (key={key}): {e}")
 
         time.sleep(interval_sec)

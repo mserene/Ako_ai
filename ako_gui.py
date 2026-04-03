@@ -6,61 +6,17 @@ import sys
 from tkinter import ttk, filedialog, messagebox
 
 from core.controller import AkoController
-from core.config import load_config, save_config
+from core.config import load_config, save_config, is_writable_dir
 from voice_loop import VoiceConfig
-from core.config import is_writable_dir, default_model_dir
+
 
 def resource_path(rel_path: str) -> str:
-    # PyInstaller(onedir/onefile) 모두 대응
+    """PyInstaller(onedir/onefile) 모두 대응"""
     base = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base, rel_path)
 
+
 class AkoGUI(tk.Tk):
-        # ---- model dir handlers ----
-    def _change_model_dir(self):
-        # (예전 바인딩 호환용 별칭)
-        return self.on_change_model_dir()
-
-    def on_change_model_dir(self):
-        chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
-        if not chosen:
-            return
-
-        # 선택 폴더 검증 (쓰기 불가면 config 건드리지 않고 기본값 유지)
-        if not is_writable_dir(chosen):
-            messagebox.showerror("폴더 오류", "선택한 폴더에 저장할 수 없어요.\n기본 경로를 계속 사용할게요.")
-            self._append_log(f"[MODEL] 적용 실패(쓰기 불가): {chosen}")
-            # 화면 표시를 현재 유효 경로로 되돌림
-            if hasattr(self, "model_path_var"):
-                self.model_path_var.set(self.cfg.effective_model_dir)
-            return
-
-        # 저장 + 적용
-        self.cfg.model_dir = chosen
-        save_config(self.cfg, self.cfg_path)
-
-        eff = self.cfg.effective_model_dir
-        self.controller.set_models_root(eff)
-        if hasattr(self, "model_path_var"):
-            self.model_path_var.set(eff)
-
-        self._append_log(f"[MODEL] 저장 위치 변경: {eff}")
-        self._refresh_ui()
-
-    def on_reset_model_dir(self):
-        # 기본값으로 재설정 (config에서 비우면 effective가 기본으로 떨어짐)
-        self.cfg.model_dir = ""
-        save_config(self.cfg, self.cfg_path)
-
-        eff = self.cfg.effective_model_dir  # 여기서 기본 경로가 선택됨
-        self.controller.set_models_root(eff)
-        if hasattr(self, "model_path_var"):
-            self.model_path_var.set(eff)
-
-        self._append_log(f"[MODEL] 기본값으로 재설정: {eff}")
-        self._refresh_ui()
-
-
     def __init__(self):
         super().__init__()
         try:
@@ -75,7 +31,6 @@ class AkoGUI(tk.Tk):
 
         # load persistent config
         self.cfg, self.cfg_path = load_config()
-        # apply model storage root to controller
         self.controller.set_models_root(self.cfg.effective_model_dir)
 
         # ---------- styles ----------
@@ -93,54 +48,45 @@ class AkoGUI(tk.Tk):
         self._build_log()
 
         self._refresh_ui()
-
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _change_model_dir(self):
-        """Back-compat alias used by some UI bindings."""
-        return self.on_change_model_dir()
-
+    # ---- model dir handlers ---- (중복 제거: 단일 구현으로 통합)
     def on_change_model_dir(self):
         chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
         if not chosen:
             return
 
-        # writable check
-        try:
-            os.makedirs(chosen, exist_ok=True)
-            testfile = os.path.join(chosen, ".ako_write_test")
-            with open(testfile, "w", encoding="utf-8") as f:
-                f.write("ok")
-            os.remove(testfile)
-        except Exception as e:
-            messagebox.showerror("폴더 오류", f"선택한 폴더에 저장할 수 없어요:{e}")
+        # 선택 폴더 검증 (쓰기 불가면 config 건드리지 않고 기본값 유지)
+        if not is_writable_dir(chosen):
+            messagebox.showerror("폴더 오류", "선택한 폴더에 저장할 수 없어요.\n기본 경로를 계속 사용할게요.")
+            self._append_log(f"[MODEL] 적용 실패(쓰기 불가): {chosen}")
+            if hasattr(self, "model_path_var"):
+                self.model_path_var.set(self.cfg.effective_model_dir)
             return
 
-        # persist config
+        # 저장 + 적용
         self.cfg.model_dir = chosen
         save_config(self.cfg, self.cfg_path)
 
-        # update UI + controller
-        effective = self.cfg.effective_model_dir
-        self.model_path_var.set(effective)
+        eff = self.cfg.effective_model_dir
+        self.controller.set_models_root(eff)
+        if hasattr(self, "model_path_var"):
+            self.model_path_var.set(eff)
 
-        # controller may implement either method or attribute
-        try:
-            self.controller.set_models_root(effective)
-        except Exception:
-            try:
-                setattr(self.controller, "models_root", effective)
-            except Exception:
-                pass
-
-        # log
-        try:
-            self.controller.log(f"모델 저장 위치 변경: {effective}")
-        except Exception:
-            self._append_log(f"모델 저장 위치 변경: {effective}")
-
+        self._append_log(f"[MODEL] 저장 위치 변경: {eff}")
         self._refresh_ui()
 
+    def on_reset_model_dir(self):
+        self.cfg.model_dir = ""
+        save_config(self.cfg, self.cfg_path)
+
+        eff = self.cfg.effective_model_dir
+        self.controller.set_models_root(eff)
+        if hasattr(self, "model_path_var"):
+            self.model_path_var.set(eff)
+
+        self._append_log(f"[MODEL] 기본값으로 재설정: {eff}")
+        self._refresh_ui()
 
     # ---------------- UI blocks ----------------
     def _build_top(self):
@@ -168,7 +114,7 @@ class AkoGUI(tk.Tk):
         self.cmd_chk = ttk.Checkbutton(box, text="명령창(채팅)", variable=self.cmd_var, command=self._toggle_cmd)
         self.cmd_chk.pack(side="left", padx=(16, 0))
 
-        # 음성 옵션(최소)
+        # 음성 옵션
         opt = ttk.Frame(box)
         opt.pack(side="right")
 
@@ -185,12 +131,11 @@ class AkoGUI(tk.Tk):
         # 모델 저장 위치
         path_row = ttk.Frame(box)
         path_row.pack(fill="x", pady=(10, 0))
-        ttk.Label(path_row, text="모델 저장 위치:\n").pack(side="left")
+        ttk.Label(path_row, text="모델 저장 위치:").pack(side="left")
         self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
-        self.model_path_label = ttk.Label(path_row, textvariable=self.model_path_var)
-        self.model_path_label.pack(side="left", padx=(8, 8), fill="x", expand=True)
-        ttk.Button(path_row, text="기본값", command=self.on_reset_model_dir).pack(side="right", padx=(6,0))
-
+        ttk.Label(path_row, textvariable=self.model_path_var).pack(side="left", padx=(8, 8), fill="x", expand=True)
+        ttk.Button(path_row, text="변경", command=self.on_change_model_dir).pack(side="right", padx=(6, 0))
+        ttk.Button(path_row, text="기본값", command=self.on_reset_model_dir).pack(side="right", padx=(6, 0))
 
     def _build_command(self):
         box = ttk.LabelFrame(self, text="명령 입력", padding=12)
@@ -218,7 +163,6 @@ class AkoGUI(tk.Tk):
 
         btns = ttk.Frame(box)
         btns.pack(fill="x", pady=(8, 0))
-
         ttk.Button(btns, text="로그 지우기", command=self._clear_log).pack(side="right")
 
     # ---------------- actions ----------------
@@ -235,12 +179,10 @@ class AkoGUI(tk.Tk):
 
     def _toggle_power(self):
         self.controller.toggle_power()
-        # 전원 OFF면 체크박스도 강제로 OFF 표시
         if not self.controller.powered_on:
             self.voice_var.set(False)
             self.cmd_var.set(False)
         else:
-            # 전원 ON 기본: 명령창 ON
             self.cmd_var.set(True)
         self._refresh_ui()
 
@@ -273,19 +215,16 @@ class AkoGUI(tk.Tk):
         self.power_var.set("ON" if on else "OFF")
         self.power_btn.configure(text="전원 끄기" if on else "전원 켜기")
 
-        # 전원 OFF면 기능 스위치/입력 전부 비활성
         state = "normal" if on else "disabled"
         self.voice_chk.configure(state=state)
         self.cmd_chk.configure(state=state)
         self.wake_entry.configure(state=state)
         self.model_entry.configure(state=state)
 
-        # command_on에 따라 입력창도 토글
         cmd_state = "normal" if (on and self.controller.command_on) else "disabled"
         self.cmd_entry.configure(state=cmd_state)
         self.send_btn.configure(state=cmd_state)
 
-        # 체크박스 값은 컨트롤러 상태를 반영(강제 동기화)
         if not on:
             self.voice_var.set(False)
             self.cmd_var.set(False)
@@ -294,7 +233,6 @@ class AkoGUI(tk.Tk):
             self.cmd_var.set(bool(self.controller.command_on))
 
     def _on_close(self):
-        # 창 닫을 때도 전원 OFF로 내려서 스레드/리소스 정리
         try:
             self.controller.power_off()
         except Exception:

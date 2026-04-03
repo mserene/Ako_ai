@@ -6,8 +6,9 @@ import argparse
 import os
 import sys
 
-# 배포( PyInstaller one-folder )에서 상대경로가 항상 exe 폴더 기준이 되도록 고정
+
 def _set_workdir_to_appdir() -> str:
+    """배포(PyInstaller one-folder)에서 상대경로가 항상 exe 폴더 기준이 되도록 고정"""
     try:
         app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
     except Exception:
@@ -16,130 +17,118 @@ def _set_workdir_to_appdir() -> str:
         os.chdir(app_dir)
     return app_dir
 
+
 _APP_DIR = _set_workdir_to_appdir()
-import re
-
-def _try_youtube_toggle_command(text: str) -> str | None:
-    """actions 모드에서 '유튜브 재생 눌러줘', '유튜브 일시정지 눌러줘' 등을 처리.
-    - 아이콘 템플릿 없이 플레이어 영역 클릭 + k 백업으로 토글
-    """
-    s = (text or "").strip()
-    if not s:
-        return None
-
-    # 유튜브 관련 키워드 + 재생/일시정지/멈춤/정지/토글
-    if "유튜브" not in s:
-        return None
-
-    # 방향(선택)
-    dir_pat = r"(왼쪽\s*위|오른쪽\s*위|왼쪽\s*아래|오른쪽\s*아래|왼쪽|오른쪽|위|아래|좌상|우상|좌하|우하)"
-    dm = re.search(dir_pat, s)
-    direction = dm.group(0) if dm else None
-
-    # 재생/일시정지 의도
-    if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s) and re.search(r"(눌러\s*줘|눌러줘|해\s*줘|해줘|해\s*줄래|해줄래)", s):
-        from ui_tap import youtube_toggle_click_only as tap_youtube_toggle
-        tap_youtube_toggle(direction=direction)
-        return "유튜브 토글 완료"
-    return None
 
 
-def _try_ui_click_command(text: str) -> str | None:
-    """
-    actions 모드에서도 '닫기 눌러줘', '오른쪽 위에 있는 닫기 눌러줘' 같은 문장을 처리.
-    실패하면 None.
-    """
-    s = (text or "").strip()
-    if not s:
-        return None
-
-    # 방향 키워드(공백 포함 허용)
-    dir_pat = r"(왼쪽\s*위|오른쪽\s*위|왼쪽\s*아래|오른쪽\s*아래|왼쪽|오른쪽|위|아래|좌상|우상|좌하|우하)"
-    # 버튼/대상 텍스트 (가능하면 짧게 잡기)
-    # 예: "오른쪽에 있는 닫기 눌러줘" / "닫기 클릭해줘"
-    m = re.search(rf"(?:(?P<dir>{dir_pat})\s*(?:에\s*있는|쪽|쪽에\s*있는)?\s*)?(?P<label>.+?)\s*(?:버튼)?\s*(?:눌러\s*줘|눌러줘|클릭\s*해\s*줘|클릭해줘)$", s)
-    if not m:
-        return None
-
-    direction = m.group("dir")
-    label = m.group("label").strip().strip('"').strip("'")
-    if not label:
-        return None
-
-    from ui_do import do_click_text
-
-    ok = do_click_text(target_text=label, direction=direction or None, monitor_index=1)
-    return f"'{label}' 클릭 완료" if ok else f"'{label}'를 화면에서 찾지 못했어요."
-
-
-
+# -----------------------------------------------------------------------------
+# run_actions: 텍스트 명령 → 실행
+# 명령 파싱 로직은 command_actions.py로 위임 (app.py는 진입점만 담당)
+# -----------------------------------------------------------------------------
 def run_actions(text: str) -> str:
-    # 0) 유튜브 토글(재생/일시정지) 명령 우선 처리
-    yt_r = _try_youtube_toggle_command(text)
-    if yt_r:
-        return yt_r
+    txt = (text or "").strip()
+    if not txt:
+        return "명령이 비어 있어요."
 
-    # 1) UI 클릭형 명령(예: '닫기 눌러줘') 우선 처리
-    ui_r = _try_ui_click_command(text)
-    if ui_r:
-        return ui_r
+    try:
+        from command_actions import (
+            handle_youtube_toggle,
+            handle_ui_click,
+            handle_open_app,
+            handle_search_command,
+            load_app_specs,
+        )
+    except ImportError as e:
+        return f"명령 모듈 로드 실패: {e}"
 
-    # 기존 앱 실행/검색 로직을 그대로 사용
-    from command_actions import handle_open_app, handle_search_command, load_app_specs
+    # 0) 유튜브 토글(재생/일시정지)
+    try:
+        r = handle_youtube_toggle(txt)
+        if r:
+            return r
+    except Exception as e:
+        return f"유튜브 토글 오류: {e}"
 
-    specs = load_app_specs()  # app_commands.json (exe 옆) 로드
-    r = handle_open_app(text, specs)
-    if r:
-        return r
+    # 1) UI 클릭 ("닫기 눌러줘" 등)
+    try:
+        r = handle_ui_click(txt)
+        if r:
+            return r
+    except Exception as e:
+        return f"UI 클릭 오류: {e}"
 
-    r = handle_search_command(text)
-    if r:
-        return r
+    # 2) 앱 실행/포커스
+    try:
+        specs = load_app_specs()
+        r = handle_open_app(txt, specs)
+        if r:
+            return r
+    except Exception as e:
+        return f"앱 실행 오류: {e}"
+
+    # 3) 검색
+    try:
+        r = handle_search_command(txt)
+        if r:
+            return r
+    except Exception as e:
+        return f"검색 오류: {e}"
 
     return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
 
 
 def run_ui() -> str:
-    from ui_loop import ui_mvp_loop
-    ui_mvp_loop()
-    return "UI 루프 종료"
+    try:
+        from ui_loop import ui_mvp_loop
+        ui_mvp_loop()
+        return "UI 루프 종료"
+    except Exception as e:
+        return f"UI 루프 오류: {e}"
 
 
 def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: str = "") -> str:
     if tap:
-        from ui_tap import tap_youtube_toggle
-        if tap in ("youtube", "youtube_toggle", "yt"):
-            tap_youtube_toggle(direction=(direction or None), backup_k=True)
-            return "[DO] ok"
-        return "[DO] fail"
+        try:
+            from ui_tap import tap_youtube_toggle
+            if tap in ("youtube", "youtube_toggle", "yt"):
+                tap_youtube_toggle(direction=(direction or None), backup_k=True)
+                return "[DO] ok"
+            return f"[DO] 알 수 없는 tap 액션: {tap}"
+        except Exception as e:
+            return f"[DO] tap 오류: {e}"
 
-    from ui_do import do_click_text
-    ok = do_click_text(target_text=press, direction=(direction or None), monitor_index=1, timeout_sec=timeout_sec)
-    return "[DO] ok" if ok else "[DO] fail"
+    try:
+        from ui_do import do_click_text
+        ok = do_click_text(target_text=press, direction=(direction or None), monitor_index=1, timeout_sec=timeout_sec)
+        return "[DO] ok" if ok else f"[DO] '{press}'를 화면에서 찾지 못했어요."
+    except Exception as e:
+        return f"[DO] 오류: {e}"
 
 
 def main():
     p = argparse.ArgumentParser(prog="ako_ai")
-    p.add_argument("--mode", choices=["gui","actions","ui","do","voice"], default="gui")
+    p.add_argument("--mode", choices=["gui", "actions", "ui", "do", "voice"], default="gui")
     p.add_argument("--text", default="", help="actions 모드에서 사용할 텍스트 명령")
     p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트 (예: 닫기/취소/확인)")
     p.add_argument("--tap", default="", help="do 모드: 탭/토글 액션 (예: youtube_toggle)")
-    p.add_argument("--dir", default="", help="do 모드: 방향(예: 왼쪽/오른쪽/위/아래/왼쪽위/오른쪽아래)")
+    p.add_argument("--dir", default="", help="do 모드: 방향(예: 왼쪽/오른쪽/위/아래)")
     p.add_argument("--timeout", type=float, default=8.0, help="do 모드: 찾기 제한 시간(초)")
-    # voice 모드(마이크 음성 인식) 설정
     p.add_argument("--wake", default="", help="voice 모드: 웨이크워드(예: 아코). 비우면 항상 실행")
-    p.add_argument("--device", type=int, default=-1, help="voice 모드: 입력 장치 인덱스(sounddevice). -1이면 기본")
+    p.add_argument("--device", type=int, default=-1, help="voice 모드: 입력 장치 인덱스. -1이면 기본")
     p.add_argument("--sr", type=int, default=16000, help="voice 모드: 샘플레이트")
-    p.add_argument("--model", default="small", help="voice 모드: faster-whisper 모델명/경로 (tiny/base/small/medium/large-v3 등)")
+    p.add_argument("--model", default="small", help="voice 모드: faster-whisper 모델명 (tiny/base/small/medium/large-v3)")
     p.add_argument("--lang", default="ko", help="voice 모드: 인식 언어(ko/en 등)")
-    p.add_argument("--silence", type=float, default=0.9, help="voice 모드: 무음 지속시간(초) 이면 종료")
-    p.add_argument("--thresh", type=float, default=0.012, help="voice 모드: 무음 판정 RMS 임계값(환경에 맞게 조절)")
+    p.add_argument("--silence", type=float, default=0.9, help="voice 모드: 무음 지속시간(초)")
+    p.add_argument("--thresh", type=float, default=0.012, help="voice 모드: 무음 판정 RMS 임계값")
 
     args = p.parse_args()
 
     if args.mode == "gui":
-        from ako_gui import main as gui_main
-        gui_main()
+        try:
+            from ako_gui import main as gui_main
+            gui_main()
+        except Exception as e:
+            print(f"[GUI] 실행 오류: {e}")
         return
 
     if args.mode == "actions":
@@ -162,23 +151,20 @@ def main():
         print(run_ui())
 
     elif args.mode == "voice":
-        from voice_loop import VoiceConfig, voice_actions_loop
-
-        cfg = VoiceConfig(
-            device=(None if args.device == -1 else args.device),
-            samplerate=int(args.sr),
-            model=str(args.model),
-            language=str(args.lang),
-            wake_word=str(args.wake),
-            silence_sec=float(args.silence),
-            silence_threshold=float(args.thresh),
-        )
-        voice_actions_loop(cfg)
-
-    else:
-        # argparse choices로 사실상 도달하지 않지만, 안전망
-        print(run_ui())
-
+        try:
+            from voice_loop import VoiceConfig, voice_actions_loop
+            cfg = VoiceConfig(
+                device=(None if args.device == -1 else args.device),
+                samplerate=int(args.sr),
+                model=str(args.model),
+                language=str(args.lang),
+                wake_word=str(args.wake),
+                silence_sec=float(args.silence),
+                silence_threshold=float(args.thresh),
+            )
+            voice_actions_loop(cfg)
+        except Exception as e:
+            print(f"[VOICE] 실행 오류: {e}")
 
 
 if __name__ == "__main__":
