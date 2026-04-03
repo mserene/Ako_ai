@@ -1,4 +1,5 @@
 faster-whisper
+ollama
 huggingface_hub
 mss
 numpy

@@ -100,13 +100,12 @@ class AkoController:
             self.log("명령창이 OFF라서 입력을 무시했어요.")
             return
 
-        self.log(f"명령 수신: {text}")
         try:
             result = _run_actions(text)
         except Exception as e:
-            self.log(f"명령 실행 중 오류: {e}")
+            self.log(f"[Ako] 오류: {e}")
             return
-        self.log(f"결과: {result}")
+        self.log(f"[Ako] {result}")
 
     # ---------------- voice ----------------
     def set_voice(self, on: bool, cfg: Optional[VoiceConfig] = None) -> None:
@@ -146,13 +145,13 @@ class AkoController:
             self.log("음성 인식 ON (듣는 중...)")
 
             def _on_heard(text: str):
-                self.log(f"(음성) 인식: {text}")
+                self.log(f"[나] {text}")
                 try:
                     result = _run_actions(text)
                 except Exception as e:
-                    self.log(f"(음성) 실행 오류: {e}")
+                    self.log(f"[Ako] 오류: {e}")
                     return
-                self.log(f"(음성) 결과: {result}")
+                self.log(f"[Ako] {result}")
 
             def _on_error(err: str):
                 self.log(f"(음성) {err}")

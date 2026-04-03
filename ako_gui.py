@@ -207,6 +207,7 @@ class AkoGUI(tk.Tk):
         if not text:
             return
         self.cmd_entry.delete(0, "end")
+        self._append_log(f"[나] {text}")
         self.controller.handle_text_command(text)
         self._refresh_ui()
 

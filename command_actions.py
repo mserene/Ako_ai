@@ -668,26 +668,29 @@ def handle_ui_click(text: str) -> Optional[str]:
 
 def run_text(user_text: str) -> str:
     """
-    텍스트 명령을 해석해서 실행하고, 사용자에게 보여줄 짧은 결과 문장을 반환한다.
+    [Deprecated] app.py의 run_actions() 또는 llm_agent.py의 run_agent()를 사용하세요.
+    하위 호환을 위해 남겨두지만 LLM 에이전트로 위임합니다.
     """
+    try:
+        from llm_agent import run_agent
+        return run_agent(user_text)
+    except Exception:
+        pass
+
+    # fallback
     txt = (user_text or "").strip()
     if not txt:
         return "명령이 비어 있어요."
-
-    # 1) 앱 실행/포커스
     try:
         msg = handle_open_app(txt)
         if msg:
             return msg
     except Exception:
         pass
-
-    # 2) 검색
     try:
         msg = handle_search_command(txt)
         if msg:
             return msg
     except Exception:
         pass
-
-    return "아직 그 명령은 못 해요. (앱 실행/검색 위주로 지원 중)"
+    return "아직 그 명령은 못 해요."

@@ -30,6 +30,15 @@ def run_actions(text: str) -> str:
     if not txt:
         return "명령이 비어 있어요."
 
+    # LLM 에이전트 우선 시도
+    try:
+        from llm_agent import run_agent
+        return run_agent(txt)
+    except Exception as e:
+        # Ollama 연결 실패 등 → 기존 규칙 기반으로 fallback
+        pass
+
+    # --- fallback: 규칙 기반 처리 ---
     try:
         from command_actions import (
             handle_youtube_toggle,
