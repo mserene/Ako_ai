@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import time
 import threading
-from dataclasses import dataclass, field
-from typing import Optional, Callable, Tuple
+from dataclasses import dataclass
+from typing import Optional, Callable
 
 
 @dataclass

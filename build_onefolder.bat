@@ -1,5 +1,4 @@
 @echo off
-setlocal
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
@@ -44,24 +43,30 @@ if errorlevel 1 (
 
 REM --- Python 설치 확인 및 자동 설치 ---
 call :resolve_python
+if not "%PYTHON_EXE%"=="" (
+  call :is_python_312 "%PYTHON_EXE%"
+  if errorlevel 1 (
+    echo [WARN] 현재 Python은 3.12가 아닙니다. 기존 Python으로 계속 진행합니다: %PYTHON_EXE%
+  )
+)
 
 if "%PYTHON_EXE%"=="" (
   echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
-  where winget >nul 2>&1
-  if not errorlevel 1 (
-    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-  ) else (
-    echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
-    powershell -NoProfile -Command ^
-      "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
-  )
-
+  call :install_python_312
   if errorlevel 1 (
     echo [ERROR] Python 자동 설치 실패
     goto :fail
   )
 
-  call :resolve_python
+  if "%PYTHON_EXE%"=="" (
+    call :resolve_python
+  )
+  if not "%PYTHON_EXE%"=="" (
+    call :is_python_312 "%PYTHON_EXE%"
+    if errorlevel 1 (
+      echo [WARN] Python 3.12를 확인하지 못했지만 감지된 Python으로 진행합니다: %PYTHON_EXE%
+    )
+  )
 )
 
 if "%PYTHON_EXE%"=="" (
@@ -80,6 +85,7 @@ if exist ".venv\Scripts\python.exe" (
 
 if not exist ".venv\Scripts\python.exe" (
   echo [INFO] Creating venv...
+
   "%PYTHON_EXE%" -m venv .venv
 )
 if not exist ".venv\Scripts\python.exe" (
@@ -107,7 +113,9 @@ if exist "%APP_DIR%" (
   move "%APP_DIR%" "%APP_BACKUP%" >nul
 )
 
+
 if exist "build" rmdir /s /q "build"
+
 
 REM --- Build using spec (options must live in .spec) ---
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean "Ako-ai.spec"
@@ -160,6 +168,43 @@ for /f "usebackq delims=" %%I in (`py -3.12 -c "import sys; print(sys.executable
 
 :resolve_python_done
 exit /b 0
+
+:install_python_312
+where winget >nul 2>&1
+if not errorlevel 1 (
+  winget install -e --id Python.Python.3.12 --version 3.12.10 --accept-package-agreements --accept-source-agreements
+  call :resolve_python
+  if not "%PYTHON_EXE%"=="" (
+    call :is_python_312 "%PYTHON_EXE%"
+    if not errorlevel 1 (
+      exit /b 0
+    )
+  )
+  echo [WARN] winget 설치가 정책/환경 문제로 완료되지 않았습니다. python.org 설치로 진행합니다...
+)
+
+powershell -NoProfile -Command ^
+  "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; $p=Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1' -Wait -PassThru; exit $p.ExitCode"
+if errorlevel 1 (
+  echo [WARN] 무인 설치 실패. 설치 UI를 열어 다시 시도합니다...
+  powershell -NoProfile -Command ^
+    "$out='%TEMP%\python-installer.exe'; if (-not (Test-Path $out)) { $url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; Invoke-WebRequest -Uri $url -OutFile $out }; $p=Start-Process -FilePath $out -ArgumentList 'InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1' -Wait -PassThru; exit $p.ExitCode"
+  if errorlevel 1 exit /b 1
+)
+
+call :resolve_python
+if "%PYTHON_EXE%"=="" exit /b 1
+call :is_python_312 "%PYTHON_EXE%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:is_python_312
+set "PY_MINOR="
+for /f "usebackq delims=" %%V in (`"%~1" -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')" 2^>nul`) do (
+  set "PY_MINOR=%%V"
+)
+if "%PY_MINOR%"=="3.12" exit /b 0
+exit /b 1
 
 :fail
 echo.

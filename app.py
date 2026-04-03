@@ -34,7 +34,7 @@ def run_actions(text: str) -> str:
     try:
         from llm_agent import run_agent
         return run_agent(txt)
-    except Exception as e:
+    except Exception:
         # Ollama 연결 실패 등 → 기존 규칙 기반으로 fallback
         pass
 
