@@ -1,41 +1,71 @@
 # -*- mode: python ; coding: utf-8 -*-
 from __future__ import annotations
 import os
+import sys
 from PyInstaller.utils.hooks import collect_submodules
 
-# Project root (this .spec file sits in the project root)
-ROOT = os.path.abspath(os.getcwd())  # fallback when __file__ is not defined during spec exec
+# 프로젝트 루트
+ROOT = os.path.abspath(os.path.dirname(SPEC) if 'SPEC' in dir() else os.getcwd())
 
-# Ensure local modules are discoverable
-pathex = [ROOT]
+# venv 경로 자동 탐지 (하드코딩 제거)
+def find_site_packages():
+    for candidate in [
+        os.path.join(ROOT, ".venv", "Lib", "site-packages"),
+        os.path.join(ROOT, "venv", "Lib", "site-packages"),
+    ]:
+        if os.path.isdir(candidate):
+            return candidate
+    for p in sys.path:
+        if "site-packages" in p and os.path.isdir(p):
+            return p
+    return ""
 
-# Force-include local modules that PyInstaller might miss in some setups
+SITE_PKG = find_site_packages()
+
 hiddenimports = [
     "ako_gui",
-    # local packages
     *collect_submodules("core"),
+    "faster_whisper",
+    "ctranslate2",
+    "pyautogui",
+    "pytesseract",
+    "PIL",
+    "mss",
+    "numpy",
+    "sounddevice",
 ]
 
-# Files that must live next to the executable at runtime
 datas = [
-    ("ako_gui.py", "."),
-    ("app_commands.json", "."),
-    ("search_sites.json", "."),
-    ('assets\\ako.ico', 'assets'),
-    (r".venv\Lib\site-packages\faster_whisper\assets", r"faster_whisper\assets"),
-    (r".venv\Lib\site-packages\faster_whisper\vad.py", r"faster_whisper"),
+    (os.path.join(ROOT, "app_commands.json"), "."),
+    (os.path.join(ROOT, "search_sites.json"), "."),
 ]
+
+ico = os.path.join(ROOT, "assets", "ako.ico")
+if os.path.exists(ico):
+    datas.append((ico, "assets"))
+
+if SITE_PKG:
+    fw_assets = os.path.join(SITE_PKG, "faster_whisper", "assets")
+    fw_vad    = os.path.join(SITE_PKG, "faster_whisper", "vad.py")
+    if os.path.isdir(fw_assets):
+        datas.append((fw_assets, "faster_whisper/assets"))
+    if os.path.isfile(fw_vad):
+        datas.append((fw_vad, "faster_whisper"))
+
+tesseract_dir = os.path.join(ROOT, "tools", "tesseract")
+if os.path.isdir(tesseract_dir):
+    datas.append((tesseract_dir, "tools/tesseract"))
 
 a = Analysis(
-    ["app.py"],
-    pathex=pathex,
+    [os.path.join(ROOT, "app.py")],
+    pathex=[ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["torch", "tensorflow", "matplotlib", "pandas", "scipy", "IPython"],
     noarchive=False,
 )
 
@@ -50,10 +80,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,           # reduce AV false positives
-    console=True,        # keep console for debugging (can be switched later)
+    upx=False,
+    console=True,
     disable_windowed_traceback=False,
-    icon=r"assets\ako.ico",
+    icon=ico if os.path.exists(ico) else None,
 )
 
 coll = COLLECT(
@@ -61,7 +91,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=False,           # reduce AV false positives
+    upx=False,
     upx_exclude=[],
     name="Ako-ai",
 )
