@@ -41,47 +41,25 @@ if errorlevel 1 (
 )
 
 REM --- Python 설치 확인 및 자동 설치 ---
-where py >nul 2>&1
-if not errorlevel 1 (
-  set "PYTHON_EXE=py -3.12"
-) else (
-  where python >nul 2>&1
+call :resolve_python
+
+if "%PYTHON_EXE%"=="" (
+  echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
+  where winget >nul 2>&1
   if not errorlevel 1 (
-    set "PYTHON_EXE=python"
+    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
   ) else (
-    echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
-
-    where winget >nul 2>&1
-    if not errorlevel 1 (
-      winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-    ) else (
-      echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
-      powershell -NoProfile -Command ^
-        "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
-    )
-
-    if errorlevel 1 (
-      echo [ERROR] Python 자동 설치 실패
-      goto :fail
-    )
-
-    REM 설치 직후 PATH 갱신 전을 대비한 기본 경로 체크
-    if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
-      set "PYTHON_EXE=\"%LocalAppData%\Programs\Python\Python312\python.exe\""
-    ) else if exist "%ProgramFiles%\Python312\python.exe" (
-      set "PYTHON_EXE=\"%ProgramFiles%\Python312\python.exe\""
-    ) else (
-      where py >nul 2>&1
-      if not errorlevel 1 (
-        set "PYTHON_EXE=py -3.12"
-      ) else (
-        where python >nul 2>&1
-        if not errorlevel 1 (
-          set "PYTHON_EXE=python"
-        )
-      )
-    )
+    echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
+    powershell -NoProfile -Command ^
+      "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
   )
+
+  if errorlevel 1 (
+    echo [ERROR] Python 자동 설치 실패
+    goto :fail
+  )
+
+  call :resolve_python
 )
 
 if "%PYTHON_EXE%"=="" (
@@ -92,7 +70,7 @@ if "%PYTHON_EXE%"=="" (
 REM --- Ensure venv (Python 3.12 recommended) ---
 if not exist ".venv\Scripts\python.exe" (
   echo [INFO] Creating venv...
-  %PYTHON_EXE% -m venv .venv
+  "%PYTHON_EXE%" -m venv .venv
 )
 if not exist ".venv\Scripts\python.exe" (
   echo [ERROR] Python 가상환경 생성 실패
@@ -142,6 +120,36 @@ if exist "%APP_BACKUP%" (
 )
 
 goto :end
+
+:resolve_python
+set "PYTHON_EXE="
+
+REM 1) 흔한 설치 경로 우선 확인
+if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
+  set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python312\python.exe"
+  goto :resolve_python_done
+)
+if exist "%ProgramFiles%\Python312\python.exe" (
+  set "PYTHON_EXE=%ProgramFiles%\Python312\python.exe"
+  goto :resolve_python_done
+)
+
+REM 2) PATH 의 python 확인
+for /f "delims=" %%I in ('where python 2^>nul') do (
+  set "PYTHON_EXE=%%~fI"
+  goto :resolve_python_done
+)
+
+REM 3) py launcher가 실제 인터프리터를 찾는지 확인
+for /f "usebackq delims=" %%I in (`py -3.12 -c "import sys; print(sys.executable)" 2^>nul`) do (
+  if exist "%%~fI" (
+    set "PYTHON_EXE=%%~fI"
+    goto :resolve_python_done
+  )
+)
+
+:resolve_python_done
+exit /b 0
 
 :fail
 echo.
