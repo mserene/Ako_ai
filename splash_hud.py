@@ -6,12 +6,10 @@ from typing import Callable
 
 
 BOOT_STEPS = [
-    "INITIALIZING INTERFACE",
-    "LOADING CORE MODULES",
-    "SYNCING WORKSPACE",
-    "CHECKING VOICE BRIDGE",
-    "CALIBRATING HUD",
-    "SYSTEM READY",
+    "AKO // LINKING",
+    "VOICE // STABLE",
+    "MEMORY // SYNCED",
+    "AKO IS READY",
 ]
 
 
@@ -20,229 +18,389 @@ class HudSplash(tk.Tk):
         super().__init__()
         self.on_done = on_done
 
+        self.w = 980
+        self.h = 620
+
         self.progress = 0
+        self.phase = 0.0
+        self.wave_phase = 0.0
         self.step_index = 0
-        self.scan_angle = 0
-        self.ring_phase = 0
         self._done = False
 
         self.overrideredirect(True)
-        self.configure(bg="#02070b")
-        self.geometry("980x620")
-        self.minsize(980, 620)
+        self.configure(bg="#070a14")
+        self.geometry(f"{self.w}x{self.h}")
+        self.minsize(self.w, self.h)
 
         self.update_idletasks()
-        w = self.winfo_width()
-        h = self.winfo_height()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        x = (sw - self.w) // 2
+        y = (sh - self.h) // 2
+        self.geometry(f"{self.w}x{self.h}+{x}+{y}")
 
         self.canvas = tk.Canvas(
             self,
-            width=w,
-            height=h,
-            bg="#02070b",
+            width=self.w,
+            height=self.h,
+            bg="#070a14",
             highlightthickness=0,
             bd=0,
         )
         self.canvas.pack(fill="both", expand=True)
 
-        self.status_var = tk.StringVar(value=BOOT_STEPS[0])
-        self.progress_var = tk.StringVar(value="000%")
-        self.small_var = tk.StringVar(value="ADVANCED BOOT SEQUENCE")
+        self.current_status = BOOT_STEPS[0]
 
         self._build_static()
-        self._tick()
-        self.after(220, self._advance_progress)
+        self._animate()
+        self.after(350, self._advance_progress)
 
+    # ------------------------------------------------------------------
+    # build
+    # ------------------------------------------------------------------
     def _build_static(self):
-        w = 980
-        h = 620
-
-        self.canvas.create_rectangle(14, 14, w - 14, h - 14, outline="#173943", width=1)
-        self.canvas.create_line(14, 14, 42, 14, fill="#6df7ff", width=2)
-        self.canvas.create_line(14, 14, 14, 42, fill="#6df7ff", width=2)
-        self.canvas.create_line(w - 42, 14, w - 14, 14, fill="#6df7ff", width=2)
-        self.canvas.create_line(w - 14, 14, w - 14, 42, fill="#6df7ff", width=2)
-        self.canvas.create_line(14, h - 14, 42, h - 14, fill="#6df7ff", width=2)
-        self.canvas.create_line(14, h - 42, 14, h - 14, fill="#6df7ff", width=2)
-        self.canvas.create_line(w - 42, h - 14, w - 14, h - 14, fill="#6df7ff", width=2)
-        self.canvas.create_line(w - 14, h - 42, w - 14, h - 14, fill="#6df7ff", width=2)
-
-        for gx in range(0, w, 48):
-            self.canvas.create_line(gx, 0, gx, h, fill="#0a1f25")
-        for gy in range(0, h, 48):
-            self.canvas.create_line(0, gy, w, gy, fill="#0a1f25")
-
-        self.canvas.create_text(
-            650,
-            92,
-            textvariable=self.small_var,
-            fill="#6fefff",
-            font=("Consolas", 10, "bold"),
-            anchor="w",
-        )
-        self.canvas.create_text(
-            650,
-            134,
-            text="HUD LOADING",
-            fill="#e7feff",
-            font=("Segoe UI", 28, "bold"),
-            anchor="w",
-        )
-        self.canvas.create_text(
-            650,
-            205,
-            text="CURRENT TASK",
-            fill="#8ecfd6",
-            font=("Consolas", 10),
-            anchor="w",
-        )
-        self.canvas.create_text(
-            650,
-            238,
-            textvariable=self.status_var,
-            fill="#e8ffff",
-            font=("Consolas", 16, "bold"),
-            anchor="w",
-        )
-        self.canvas.create_text(
-            650,
-            405,
-            text="PROGRESS",
-            fill="#8ecfd6",
-            font=("Consolas", 10),
-            anchor="w",
-        )
-        self.canvas.create_text(
-            870,
-            405,
-            textvariable=self.progress_var,
-            fill="#dfffff",
-            font=("Consolas", 11, "bold"),
-            anchor="e",
-        )
-
-        self.canvas.create_rectangle(650, 425, 890, 439, outline="#28434a", width=1)
-        self.progress_fill = self.canvas.create_rectangle(
-            651, 426, 651, 438, outline="", fill="#78fff0"
-        )
-
-        self.canvas.create_rectangle(650, 460, 890, 560, outline="#28434a", width=1)
-        self.log_items = []
-
-        cx, cy = 290, 305
+        w, h = self.w, self.h
+        cx, cy = w // 2, h // 2 - 20
         self.cx = cx
         self.cy = cy
 
-        self.canvas.create_oval(cx - 175, cy - 175, cx + 175, cy + 175, outline="#12313a", width=1)
-        self.canvas.create_oval(cx - 145, cy - 145, cx + 145, cy + 145, outline="#143743", width=1)
-        self.canvas.create_oval(cx - 115, cy - 115, cx + 115, cy + 115, outline="#18454d", width=1)
-        self.canvas.create_line(cx - 190, cy, cx + 190, cy, fill="#153039")
-        self.canvas.create_line(cx, cy - 190, cx, cy + 190, fill="#153039")
+        # background layers
+        self.canvas.create_rectangle(0, 0, w, h, fill="#070a14", outline="")
 
-        self.ring1 = self.canvas.create_arc(
-            cx - 170, cy - 170, cx + 170, cy + 170,
-            start=10, extent=40, style="arc", outline="#7efff0", width=3
-        )
-        self.ring2 = self.canvas.create_arc(
-            cx - 140, cy - 140, cx + 140, cy + 140,
-            start=180, extent=55, style="arc", outline="#9ffcff", width=2
-        )
-        self.ring3 = self.canvas.create_arc(
-            cx - 110, cy - 110, cx + 110, cy + 110,
-            start=260, extent=36, style="arc", outline="#5ce8ff", width=2
+        self._draw_background_glow(cx, cy, 250, "#120f24")
+        self._draw_background_glow(cx, cy, 180, "#17122d")
+        self._draw_background_glow(cx, cy, 110, "#20153a")
+
+        # subtle top/bottom fades
+        self.canvas.create_rectangle(0, 0, w, 90, fill="#080c18", outline="")
+        self.canvas.create_rectangle(0, h - 90, w, h, fill="#080b17", outline="")
+
+        # decorative thin frame
+        self.canvas.create_line(54, 46, w - 54, 46, fill="#171d34", width=1)
+        self.canvas.create_line(54, h - 46, w - 54, h - 46, fill="#171d34", width=1)
+
+        # small title
+        self.title_text = self.canvas.create_text(
+            cx,
+            110,
+            text="AKO",
+            fill="#8d73d9",
+            font=("Segoe UI", 10, "bold"),
+            anchor="center",
         )
 
-        self.scan_line = self.canvas.create_line(cx, cy, cx + 150, cy, fill="#7efff0", width=2)
-
-        self.core_outer = self.canvas.create_oval(
-            cx - 54, cy - 54, cx + 54, cy + 54, outline="#82fff4", width=2
+        # central aura
+        self.aura_outer = self.canvas.create_oval(
+            cx - 130, cy - 130, cx + 130, cy + 130,
+            outline="",
+            fill="#151028",
         )
+        self.aura_mid = self.canvas.create_oval(
+            cx - 92, cy - 92, cx + 92, cy + 92,
+            outline="",
+            fill="#1b1430",
+        )
+        self.aura_inner = self.canvas.create_oval(
+            cx - 58, cy - 58, cx + 58, cy + 58,
+            outline="",
+            fill="#23183d",
+        )
+
+        # AKO letters built separately
+        self.letter_a = self.canvas.create_text(
+            cx - 82,
+            cy,
+            text="A",
+            fill="#2a2144",
+            font=("Segoe UI Semibold", 38, "bold"),
+            anchor="center",
+        )
+        self.letter_k = self.canvas.create_text(
+            cx,
+            cy,
+            text="K",
+            fill="#2a2144",
+            font=("Segoe UI Semibold", 38, "bold"),
+            anchor="center",
+        )
+        self.letter_o = self.canvas.create_text(
+            cx + 82,
+            cy,
+            text="O",
+            fill="#2a2144",
+            font=("Segoe UI Semibold", 38, "bold"),
+            anchor="center",
+        )
+
+        # letter underline fragments
+        self.line_a = self.canvas.create_line(
+            cx - 110, cy + 42, cx - 56, cy + 42,
+            fill="#2a2144", width=2
+        )
+        self.line_k = self.canvas.create_line(
+            cx - 26, cy + 42, cx + 26, cy + 42,
+            fill="#2a2144", width=2
+        )
+        self.line_o = self.canvas.create_line(
+            cx + 56, cy + 42, cx + 110, cy + 42,
+            fill="#2a2144", width=2
+        )
+
+        # soft orbital / symbol wave around AKO
+        self.wave_items = []
+        self._create_symbol_waves()
+
+        # small status text
+        self.status_text = self.canvas.create_text(
+            cx,
+            cy + 118,
+            text=self.current_status,
+            fill="#9f8adf",
+            font=("Consolas", 11, "bold"),
+            anchor="center",
+        )
+
+        # ready text, initially hidden
+        self.ready_text = self.canvas.create_text(
+            cx,
+            cy + 154,
+            text="",
+            fill="#d8d1f5",
+            font=("Segoe UI", 14, "bold"),
+            anchor="center",
+        )
+
+        # minimal bottom indicators
+        self.progress_left = self.canvas.create_text(
+            cx - 86,
+            h - 112,
+            text="STATE",
+            fill="#5f5b7c",
+            font=("Consolas", 10),
+            anchor="e",
+        )
+        self.progress_label = self.canvas.create_text(
+            cx - 70,
+            h - 112,
+            text="00%",
+            fill="#b8a9ee",
+            font=("Consolas", 10, "bold"),
+            anchor="w",
+        )
+
+        self.bar_bg = self.canvas.create_line(
+            cx - 70, h - 92, cx + 70, h - 92,
+            fill="#24263a", width=2
+        )
+        self.bar_fill = self.canvas.create_line(
+            cx - 70, h - 92, cx - 70, h - 92,
+            fill="#8e73f0", width=2
+        )
+
+    def _draw_background_glow(self, cx: int, cy: int, r: int, color: str):
         self.canvas.create_oval(
-            cx - 40, cy - 40, cx + 40, cy + 40, outline="#376f75", width=1
+            cx - r, cy - r, cx + r, cy + r,
+            fill=color, outline=""
         )
-        self.canvas.create_text(cx, cy - 10, text="CORE", fill="#9adce0", font=("Consolas", 10, "bold"))
-        self.canvas.create_text(cx, cy + 16, text="AKO", fill="#ecffff", font=("Segoe UI", 20, "bold"))
 
-        self.sweep_y = 70
-        self.sweep_line = self.canvas.create_line(40, self.sweep_y, 940, self.sweep_y, fill="#5cf3ff", width=1)
+    def _create_symbol_waves(self):
+        cx, cy = self.cx, self.cy
+        base_r = 96
 
-    def _draw_logs(self):
-        for item in self.log_items:
-            self.canvas.delete(item)
-        self.log_items.clear()
+        for i in range(28):
+            angle = (360 / 28) * i
+            rad = math.radians(angle)
+            x1 = cx + math.cos(rad) * (base_r - 6)
+            y1 = cy + math.sin(rad) * (base_r - 6)
+            x2 = cx + math.cos(rad) * (base_r + 6)
+            y2 = cy + math.sin(rad) * (base_r + 6)
 
-        visible = BOOT_STEPS[: self.step_index + 1]
-        y = 485
-        for i, text in enumerate(visible[-4:]):
-            code = 100 + i
-            item = self.canvas.create_text(
-                664,
-                y,
-                text=f"[{code}] {text}",
-                fill="#d7ffff",
-                font=("Consolas", 10),
-                anchor="w",
+            item = self.canvas.create_line(
+                x1, y1, x2, y2,
+                fill="#211b35",
+                width=2,
+                capstyle=tk.ROUND,
             )
-            self.log_items.append(item)
-            y += 22
+            self.wave_items.append((item, angle))
 
-    def _tick(self):
+    # ------------------------------------------------------------------
+    # animation
+    # ------------------------------------------------------------------
+    def _animate(self):
         if self._done:
             return
 
-        self.scan_angle = (self.scan_angle + 4) % 360
-        self.ring_phase = (self.ring_phase + 3) % 360
-        self.sweep_y += 6
-        if self.sweep_y > 570:
-            self.sweep_y = 60
+        self.phase += 0.06
+        self.wave_phase += 3.2
 
-        self.canvas.itemconfigure(self.ring1, start=self.ring_phase)
-        self.canvas.itemconfigure(self.ring2, start=180 - self.ring_phase)
-        self.canvas.itemconfigure(self.ring3, start=260 + self.ring_phase)
+        self._animate_aura()
+        self._animate_letters()
+        self._animate_symbol_waves()
 
-        rad = math.radians(self.scan_angle)
-        x2 = self.cx + math.cos(rad) * 150
-        y2 = self.cy + math.sin(rad) * 150
-        self.canvas.coords(self.scan_line, self.cx, self.cy, x2, y2)
-        self.canvas.coords(self.sweep_line, 40, self.sweep_y, 940, self.sweep_y)
+        self.after(33, self._animate)
 
-        pulse = 54 + (math.sin(math.radians(self.ring_phase * 3)) * 4)
+    def _animate_aura(self):
+        cx, cy = self.cx, self.cy
+
+        pulse1 = math.sin(self.phase) * 5
+        pulse2 = math.sin(self.phase * 1.25 + 0.8) * 4
+        pulse3 = math.sin(self.phase * 1.5 + 1.7) * 3
+
         self.canvas.coords(
-            self.core_outer,
-            self.cx - pulse, self.cy - pulse,
-            self.cx + pulse, self.cy + pulse
+            self.aura_outer,
+            cx - (130 + pulse1), cy - (130 + pulse1),
+            cx + (130 + pulse1), cy + (130 + pulse1)
+        )
+        self.canvas.coords(
+            self.aura_mid,
+            cx - (92 + pulse2), cy - (92 + pulse2),
+            cx + (92 + pulse2), cy + (92 + pulse2)
+        )
+        self.canvas.coords(
+            self.aura_inner,
+            cx - (58 + pulse3), cy - (58 + pulse3),
+            cx + (58 + pulse3), cy + (58 + pulse3)
         )
 
-        self.after(33, self._tick)
+        # subtle color breathing
+        glow_mix = int(40 + (math.sin(self.phase) + 1) * 12)
+        mid_mix = int(52 + (math.sin(self.phase * 1.2) + 1) * 10)
+        inner_mix = int(64 + (math.sin(self.phase * 1.4) + 1) * 10)
 
+        self.canvas.itemconfigure(self.aura_outer, fill=self._hex_rgb(18, 12, glow_mix))
+        self.canvas.itemconfigure(self.aura_mid, fill=self._hex_rgb(28, 18, mid_mix))
+        self.canvas.itemconfigure(self.aura_inner, fill=self._hex_rgb(38, 22, inner_mix))
+
+    def _animate_letters(self):
+        # reveal by progress
+        # A first, then K, then O, then underline fragments, then final brighten
+        p = self.progress
+
+        a_color = self._blend_color("#2a2144", "#c9b6ff", self._segment(p, 5, 35))
+        k_color = self._blend_color("#2a2144", "#d7c8ff", self._segment(p, 20, 55))
+        o_color = self._blend_color("#2a2144", "#ece4ff", self._segment(p, 38, 72))
+
+        line_a = self._blend_color("#2a2144", "#7e67cf", self._segment(p, 12, 42))
+        line_k = self._blend_color("#2a2144", "#8d73f0", self._segment(p, 28, 58))
+        line_o = self._blend_color("#2a2144", "#a28bff", self._segment(p, 45, 75))
+
+        self.canvas.itemconfigure(self.letter_a, fill=a_color)
+        self.canvas.itemconfigure(self.letter_k, fill=k_color)
+        self.canvas.itemconfigure(self.letter_o, fill=o_color)
+
+        self.canvas.itemconfigure(self.line_a, fill=line_a)
+        self.canvas.itemconfigure(self.line_k, fill=line_k)
+        self.canvas.itemconfigure(self.line_o, fill=line_o)
+
+        # slight floating motion
+        a_dy = math.sin(self.phase * 1.3) * 1.5
+        k_dy = math.sin(self.phase * 1.2 + 0.8) * 1.2
+        o_dy = math.sin(self.phase * 1.4 + 1.6) * 1.5
+
+        self.canvas.coords(self.letter_a, self.cx - 82, self.cy + a_dy)
+        self.canvas.coords(self.letter_k, self.cx, self.cy + k_dy)
+        self.canvas.coords(self.letter_o, self.cx + 82, self.cy + o_dy)
+
+        self.canvas.coords(self.line_a, self.cx - 110, self.cy + 42 + a_dy, self.cx - 56, self.cy + 42 + a_dy)
+        self.canvas.coords(self.line_k, self.cx - 26, self.cy + 42 + k_dy, self.cx + 26, self.cy + 42 + k_dy)
+        self.canvas.coords(self.line_o, self.cx + 56, self.cy + 42 + o_dy, self.cx + 110, self.cy + 42 + o_dy)
+
+    def _animate_symbol_waves(self):
+        # subtle pulse around symbol
+        strength = self._segment(self.progress, 28, 100)
+
+        for item, angle in self.wave_items:
+            local = (math.sin(math.radians(angle * 2 + self.wave_phase)) + 1) / 2
+            amt = 0.18 + (0.82 * local * strength)
+
+            color = self._blend_color("#211b35", "#8f78ee", amt * 0.7)
+            width = 1 if amt < 0.45 else 2
+
+            rad = math.radians(angle)
+            r1 = 96 + math.sin(math.radians(self.wave_phase + angle)) * 2
+            r2 = 108 + math.sin(math.radians(self.wave_phase * 1.2 + angle * 1.6)) * 3
+
+            x1 = self.cx + math.cos(rad) * r1
+            y1 = self.cy + math.sin(rad) * r1
+            x2 = self.cx + math.cos(rad) * r2
+            y2 = self.cy + math.sin(rad) * r2
+
+            self.canvas.coords(item, x1, y1, x2, y2)
+            self.canvas.itemconfigure(item, fill=color, width=width)
+
+    # ------------------------------------------------------------------
+    # progress / state
+    # ------------------------------------------------------------------
     def _advance_progress(self):
         if self._done:
             return
 
         self.progress = min(self.progress + 2, 100)
-        idx = min(int((self.progress / 100) * len(BOOT_STEPS)), len(BOOT_STEPS) - 1)
-        self.step_index = idx
 
-        self.status_var.set(BOOT_STEPS[self.step_index])
-        self.progress_var.set(f"{self.progress:03d}%")
-        end_x = 651 + int(238 * (self.progress / 100))
-        self.canvas.coords(self.progress_fill, 651, 426, end_x, 438)
-        self._draw_logs()
+        if self.progress < 30:
+            self.step_index = 0
+        elif self.progress < 58:
+            self.step_index = 1
+        elif self.progress < 84:
+            self.step_index = 2
+        else:
+            self.step_index = 3
+
+        self.current_status = BOOT_STEPS[self.step_index]
+
+        self.canvas.itemconfigure(self.status_text, text=self.current_status)
+        self.canvas.itemconfigure(self.progress_label, text=f"{self.progress:02d}%")
+
+        end_x = (self.cx - 70) + int(140 * (self.progress / 100))
+        self.canvas.coords(self.bar_fill, self.cx - 70, self.h - 92, end_x, self.h - 92)
+
+        if self.progress >= 84:
+            alpha = self._segment(self.progress, 84, 100)
+            ready_color = self._blend_color("#3a3056", "#ebe2ff", alpha)
+            self.canvas.itemconfigure(self.ready_text, text="AKO IS READY", fill=ready_color)
 
         if self.progress >= 100:
             self._done = True
-            self.after(500, self._finish)
+            self.after(700, self._finish)
             return
 
-        delay = 90 if self.progress < 80 else 120
+        delay = 85 if self.progress < 70 else 105
         self.after(delay, self._advance_progress)
 
     def _finish(self):
         self.destroy()
         if self.on_done:
             self.on_done()
+
+    # ------------------------------------------------------------------
+    # utils
+    # ------------------------------------------------------------------
+    def _segment(self, value: float, start: float, end: float) -> float:
+        if value <= start:
+            return 0.0
+        if value >= end:
+            return 1.0
+        return (value - start) / (end - start)
+
+    def _blend_color(self, c1: str, c2: str, t: float) -> str:
+        t = max(0.0, min(1.0, t))
+        r1, g1, b1 = self._hex_to_rgb(c1)
+        r2, g2, b2 = self._hex_to_rgb(c2)
+
+        r = int(r1 + (r2 - r1) * t)
+        g = int(g1 + (g2 - g1) * t)
+        b = int(b1 + (b2 - b1) * t)
+        return self._rgb_to_hex(r, g, b)
+
+    def _hex_to_rgb(self, value: str):
+        value = value.lstrip("#")
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+    def _rgb_to_hex(self, r: int, g: int, b: int) -> str:
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _hex_rgb(self, r: int, g: int, b: int) -> str:
+        r = max(0, min(255, r))
+        g = max(0, min(255, g))
+        b = max(0, min(255, b))
+        return f"#{r:02x}{g:02x}{b:02x}"
