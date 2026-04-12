@@ -5,8 +5,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from voice_loop import VoiceConfig, gui_voice_loop
-from bootstrap import BootstrapStatus, ensure_whisper_model_async
+from voice_loop import (
+    BootstrapStatus,
+    VoiceConfig,
+    ensure_whisper_model_async,
+    gui_voice_loop,
+)
 
 LogFn = Callable[[str], None]
 

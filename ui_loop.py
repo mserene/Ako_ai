@@ -4,15 +4,122 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import re
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 import pyautogui as pag
 
-from ui_capture import grab_screen
-from ui_ocr import ocr_lines
-from ui_policy import decide_action
+from ui_vision import grab_screen, ocr_lines
 
 logger = logging.getLogger(__name__)
+
+BUTTON_WORDS: List[str] = ["확인", "예", "동의", "다음", "건너뛰기", "닫기", "취소", "아니오"]
+
+KEY_FOR = {
+    "확인": "enter",
+    "예": "enter",
+    "동의": "enter",
+    "다음": "enter",
+    "건너뛰기": "enter",
+    "닫기": "esc",
+    "취소": "esc",
+    "아니오": "esc",
+}
+
+SINGLE_HIT_ALLOW = {"건너뛰기"}
+
+DIALOG_HINT_WORDS: List[str] = [
+    "설치",
+    "업데이트",
+    "권한",
+    "허용",
+    "승인",
+    "경고",
+    "오류",
+    "실패",
+    "저장",
+    "종료",
+    "닫으시겠",
+    "취소하시겠",
+    "정말",
+    "계속",
+    "라이선스",
+    "사용권",
+    "동의함",
+    "확인하시겠",
+    "삭제",
+    "변경",
+    "적용",
+    "재시작",
+    "다시 시작",
+    "필요",
+    "요청",
+    "연결",
+]
+
+POSITIVE = {"확인", "예", "동의", "다음", "건너뛰기"}
+NEGATIVE = {"닫기", "취소", "아니오"}
+
+
+def _normalize_text(lines: List[str]) -> Tuple[str, str]:
+    joined = " ".join(lines)
+    compact = re.sub(r"[^0-9A-Za-z가-힣]", "", joined)
+    return joined, compact
+
+
+def extract_hits(lines: List[str]) -> Set[str]:
+    joined, compact = _normalize_text(lines)
+    hits = set()
+    for word in BUTTON_WORDS:
+        if word in joined or word in compact:
+            hits.add(word)
+    return hits
+
+
+def has_dialog_context(lines: List[str]) -> bool:
+    joined, compact = _normalize_text(lines)
+    return any(word in joined or word in compact for word in DIALOG_HINT_WORDS)
+
+
+def decide_action(lines: List[str]) -> Tuple[Optional[str], Optional[str], str]:
+    hits = extract_hits(lines)
+    if not hits:
+        return None, None, "no_hits"
+
+    context_exists = has_dialog_context(lines)
+    if len(hits) == 1 and not context_exists:
+        only = next(iter(hits))
+        if only in SINGLE_HIT_ALLOW:
+            return only, KEY_FOR[only], f"single_hit_allow({only})"
+        return None, None, f"single_hit_no_context({only})"
+
+    joined, compact = _normalize_text(lines)
+
+    def ctx_has_any(words: List[str]) -> bool:
+        return any(word in joined or word in compact for word in words)
+
+    positive_context = ctx_has_any(
+        ["설치", "업데이트", "권한", "허용", "승인", "라이선스", "사용권", "동의", "계속", "다음"]
+    )
+    negative_context = ctx_has_any(["오류", "실패", "경고", "종료", "닫으시겠", "취소하시겠", "삭제", "정말"])
+
+    priority = ["동의", "다음", "확인", "예", "건너뛰기", "취소", "닫기", "아니오"]
+    for target in priority:
+        if target not in hits:
+            continue
+
+        if target in POSITIVE:
+            if positive_context or context_exists:
+                return target, KEY_FOR[target], f"positive_ok(ctx_positive={positive_context}, ctx={context_exists})"
+            continue
+
+        if target in NEGATIVE:
+            if negative_context:
+                return target, KEY_FOR[target], f"negative_ok(ctx_negative={negative_context})"
+            continue
+
+    return None, None, "gated_skip"
 
 
 def screen_fingerprint(bgra: np.ndarray) -> str:

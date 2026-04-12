@@ -41,5 +41,5 @@ pip install numpy pyautogui mss pillow pytesseract sounddevice faster-whisper
 ```
 
 ## 정리 포인트
-- 배포 산출물(`dist/`, `build/`)과 빌드용 가상환경(`.venv_build/`), git 메타데이터(`.git/`)는 제거했습니다.
-- 실제 소스 + 설정 파일만 남겨서 단계가 꼬이지 않게 했습니다.
+- 저장소에는 실제 소스와 설정만 유지하고, `dist/`, `build/`, `__pycache__/` 같은 생성물은 관리 대상에서 제외합니다.
+- UI OCR/탐색 로직과 Whisper 부트스트랩 로직은 역할별로 묶어서 파일 수를 줄였습니다.

@@ -98,9 +98,9 @@ def run_ui() -> str:
 def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: str = "") -> str:
     if tap:
         try:
-            from ui_tap import tap_youtube_toggle
+            from ui_tap import youtube_toggle_click_only
             if tap in ("youtube", "youtube_toggle", "yt"):
-                tap_youtube_toggle(direction=(direction or None), backup_k=True)
+                youtube_toggle_click_only(direction=(direction or None))
                 return "[DO] ok"
             return f"[DO] 알 수 없는 tap 액션: {tap}"
         except Exception as e:

@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import tkinter as tk
 import os
 import sys
+from splash_hud import HudSplash
+from __future__ import annotations
 from tkinter import ttk, filedialog, messagebox
-
 from core.controller import AkoController
 from core.config import load_config, save_config, is_writable_dir
 from voice_loop import VoiceConfig
@@ -240,10 +239,13 @@ class AkoGUI(tk.Tk):
             pass
         self.destroy()
 
-
 def main():
-    app = AkoGUI()
-    app.mainloop()
+    def _launch_main():
+        app = AkoGUI()
+        app.mainloop()
+
+    splash = HudSplash(on_done=_launch_main)
+    splash.mainloop()
 
 
 if __name__ == "__main__":

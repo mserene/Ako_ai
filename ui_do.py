@@ -8,8 +8,7 @@ from typing import List, Optional, Tuple
 
 import pyautogui as pag
 
-from ui_capture import grab_screen
-from ui_locate import find_text_boxes, pick_by_direction
+from ui_vision import find_text_boxes, grab_screen, pick_by_direction
 
 logger = logging.getLogger(__name__)
 
