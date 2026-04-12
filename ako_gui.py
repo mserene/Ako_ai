@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 import tkinter as tk
 import os
 import sys
-from splash_hud import HudSplash
-from __future__ import annotations
 from tkinter import ttk, filedialog, messagebox
+
+from splash_hud import HudSplash
 from core.controller import AkoController
 from core.config import load_config, save_config, is_writable_dir
 from voice_loop import VoiceConfig
-
 
 def resource_path(rel_path: str) -> str:
     """PyInstaller(onedir/onefile) 모두 대응"""
