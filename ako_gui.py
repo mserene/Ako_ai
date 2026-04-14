@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
 
 from loading_overlay import LoadingOverlay
 from core.controller import AkoController
-from voice_loop import VoiceConfig
 
 
 def resource_path(rel_path: str) -> str:
@@ -15,130 +14,89 @@ def resource_path(rel_path: str) -> str:
     return os.path.join(base, rel_path)
 
 
-class RoundedButton(tk.Canvas):
+class RoundIconButton(tk.Canvas):
     def __init__(
         self,
         master,
-        text,
         command,
-        width=124,
-        height=42,
-        radius=18,
-        bg="#1b1f34",
-        fg="#f3f4ff",
-        hover_bg="#2a3050",
-        active_bg="#ab8dff",
-        active_fg="#0b0b14",
-        font=("Segoe UI Semibold", 10),
-        disabled_bg="#171a27",
-        disabled_fg="#666b88",
+        size=42,
+        bg="#f2f4ff",
+        fg="#0c0f1a",
+        hover_bg="#ffffff",
+        disabled_bg="#555a70",
     ):
         super().__init__(
             master,
-            width=width,
-            height=height,
+            width=size,
+            height=size,
             bg=master.cget("bg"),
             highlightthickness=0,
             bd=0,
         )
         self.command = command
-        self._text = text
-        self._width = width
-        self._height = height
-        self._radius = radius
-        self._bg = bg
-        self._fg = fg
-        self._hover_bg = hover_bg
-        self._active_bg = active_bg
-        self._active_fg = active_fg
-        self._font = font
-        self._disabled_bg = disabled_bg
-        self._disabled_fg = disabled_fg
-        self._enabled = True
+        self.size = size
+        self.bg_color = bg
+        self.fg_color = fg
+        self.hover_bg = hover_bg
+        self.disabled_bg = disabled_bg
+        self.enabled = True
         self._pressed = False
 
-        self._draw(self._bg, self._fg)
+        self._draw(bg)
 
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
 
-    def _rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
-        points = [
-            x1 + r, y1,
-            x2 - r, y1,
-            x2, y1,
-            x2, y1 + r,
-            x2, y2 - r,
-            x2, y2,
-            x2 - r, y2,
-            x1 + r, y2,
-            x1, y2,
-            x1, y2 - r,
-            x1, y1 + r,
-            x1, y1,
-        ]
-        return self.create_polygon(points, smooth=True, splinesteps=24, **kwargs)
-
-    def _draw(self, fill, text_fill):
+    def _draw(self, fill):
         self.delete("all")
-        self._rounded_rect(
-            2, 2,
-            self._width - 2,
-            self._height - 2,
-            self._radius,
+        pad = 2
+        self.create_oval(
+            pad,
+            pad,
+            self.size - pad,
+            self.size - pad,
             fill=fill,
             outline="",
         )
-        self.create_text(
-            self._width // 2,
-            self._height // 2,
-            text=self._text,
-            fill=text_fill,
-            font=self._font,
+        cx = self.size / 2
+        cy = self.size / 2
+        self.create_polygon(
+            cx - 5, cy - 7,
+            cx + 8, cy,
+            cx - 5, cy + 7,
+            fill=self.fg_color,
+            outline="",
         )
 
     def configure_state(self, enabled: bool):
-        self._enabled = enabled
-        if enabled:
-            self._draw(self._bg, self._fg)
-        else:
-            self._draw(self._disabled_bg, self._disabled_fg)
-
-    def configure_text(self, text: str):
-        self._text = text
-        if self._enabled:
-            self._draw(self._bg, self._fg)
-        else:
-            self._draw(self._disabled_bg, self._disabled_fg)
+        self.enabled = enabled
+        self._draw(self.bg_color if enabled else self.disabled_bg)
 
     def _on_enter(self, _event):
-        if self._enabled and not self._pressed:
-            self._draw(self._hover_bg, self._fg)
+        if self.enabled and not self._pressed:
+            self._draw(self.hover_bg)
 
     def _on_leave(self, _event):
-        if self._enabled and not self._pressed:
-            self._draw(self._bg, self._fg)
+        if self.enabled and not self._pressed:
+            self._draw(self.bg_color)
 
     def _on_press(self, _event):
-        if self._enabled:
+        if self.enabled:
             self._pressed = True
-            self._draw(self._active_bg, self._active_fg)
+            self._draw(self.hover_bg)
 
     def _on_release(self, event):
-        if not self._enabled:
+        if not self.enabled:
             return
 
-        inside = 0 <= event.x <= self._width and 0 <= event.y <= self._height
+        inside = 0 <= event.x <= self.size and 0 <= event.y <= self.size
         self._pressed = False
+        self._draw(self.hover_bg if inside else self.bg_color)
 
-        if inside:
-            self._draw(self._hover_bg, self._fg)
-            if self.command:
-                self.command()
-        else:
-            self._draw(self._bg, self._fg)
+        if inside and self.command:
+            self.command()
 
 
 class AkoGUI(tk.Tk):
@@ -152,29 +110,33 @@ class AkoGUI(tk.Tk):
             pass
 
         self.title("Ako")
-        self.geometry("920x640")
-        self.minsize(820, 560)
+        self.geometry("940x680")
+        self.minsize(860, 600)
         self.configure(bg="#090b14")
 
         self.colors = {
             "bg": "#090b14",
             "panel": "#101321",
-            "panel_2": "#14182a",
+            "panel_2": "#151a2b",
             "border": "#2a2f4b",
             "text": "#eceefe",
             "muted": "#a7adc9",
             "accent": "#ab8dff",
             "accent_soft": "#241f45",
-            "button_bg": "#1b1f34",
-            "button_hover": "#2a3050",
-            "button_fg": "#f3f4ff",
-            "entry_bg": "#0f1322",
-            "entry_fg": "#f2f4ff",
+            "entry_bg": "#23252d",
+            "entry_fg": "#f3f4ff",
             "log_bg": "#0c0f1b",
+            "chip_on_bg": "#241f45",
+            "chip_on_fg": "#ab8dff",
+            "chip_off_bg": "#151a2b",
+            "chip_off_fg": "#a7adc9",
         }
 
         self.controller = AkoController(log_fn=self._append_log)
         self.loading_overlay: LoadingOverlay | None = None
+
+        self._placeholder_text = "메시지 입력..."
+        self._placeholder_active = True
 
         self._build_ui()
         self._refresh_ui()
@@ -185,7 +147,7 @@ class AkoGUI(tk.Tk):
         self.deiconify()
 
     # ------------------------------------------------------------------
-    # loading overlay
+    # loading
     # ------------------------------------------------------------------
     def _start_loading_overlay(self):
         self.loading_overlay = LoadingOverlay(
@@ -220,7 +182,7 @@ class AkoGUI(tk.Tk):
 
         tk.Label(
             header_left,
-            text="명령 인터페이스",
+            text="대화 인터페이스",
             bg=self.colors["bg"],
             fg=self.colors["text"],
             font=("Segoe UI Semibold", 22),
@@ -228,22 +190,43 @@ class AkoGUI(tk.Tk):
 
         tk.Label(
             header_left,
-            text="전원을 켜고 명령을 입력하면 바로 응답합니다",
+            text="명령도 실행하고 일상대화도 가능한 채팅 화면",
             bg=self.colors["bg"],
             fg=self.colors["muted"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(6, 0))
 
+        right = tk.Frame(header, bg=self.colors["bg"])
+        right.pack(side="right")
+
         self.power_chip = tk.Label(
-            header,
+            right,
             text="꺼짐",
-            bg=self.colors["panel_2"],
-            fg=self.colors["muted"],
+            bg=self.colors["chip_off_bg"],
+            fg=self.colors["chip_off_fg"],
             font=("Segoe UI Semibold", 10),
             padx=16,
             pady=8,
         )
         self.power_chip.pack(side="right")
+
+        self.power_btn = tk.Button(
+            right,
+            text="전원 켜기",
+            command=self._toggle_power,
+            bg="#ab8dff",
+            fg="#0b0b14",
+            activebackground="#bea7ff",
+            activeforeground="#0b0b14",
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=9,
+            font=("Segoe UI Semibold", 10),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+        self.power_btn.pack(side="right", padx=(0, 10))
 
         main_panel = tk.Frame(
             root,
@@ -256,119 +239,39 @@ class AkoGUI(tk.Tk):
         )
         main_panel.pack(fill="both", expand=True, pady=(16, 0))
 
-        top_row = tk.Frame(main_panel, bg=self.colors["panel"])
-        top_row.pack(fill="x")
-
-        self.power_btn = RoundedButton(
-            top_row,
-            text="전원 켜기",
-            command=self._toggle_power,
-            width=130,
-            height=44,
-            radius=20,
-            bg=self.colors["accent"],
-            fg="#0b0b14",
-            hover_bg="#bea7ff",
-            active_bg="#8f6fff",
-            active_fg="#0b0b14",
-        )
-        self.power_btn.pack(side="left")
+        top_info = tk.Frame(main_panel, bg=self.colors["panel"])
+        top_info.pack(fill="x", pady=(0, 12))
 
         self.status_line = tk.Label(
-            top_row,
+            top_info,
             text="전원 꺼짐",
             bg=self.colors["panel"],
             fg=self.colors["muted"],
             font=("Segoe UI", 10),
             anchor="w",
         )
-        self.status_line.pack(side="left", padx=(14, 0), fill="x", expand=True)
+        self.status_line.pack(side="left", fill="x", expand=True)
 
-        command_box = tk.Frame(main_panel, bg=self.colors["panel"])
-        command_box.pack(fill="x", pady=(18, 16))
-
-        tk.Label(
-            command_box,
-            text="명령 입력",
-            bg=self.colors["panel"],
-            fg=self.colors["muted"],
-            font=("Segoe UI Semibold", 9),
-        ).pack(anchor="w", pady=(0, 6))
-
-        entry_row = tk.Frame(command_box, bg=self.colors["panel"])
-        entry_row.pack(fill="x")
-
-        self.cmd_entry = tk.Entry(
-            entry_row,
-            bg=self.colors["entry_bg"],
-            fg=self.colors["entry_fg"],
-            insertbackground=self.colors["accent"],
+        self.clear_btn = tk.Button(
+            top_info,
+            text="대화 지우기",
+            command=self._clear_log,
+            bg="#1b1f34",
+            fg="#f3f4ff",
+            activebackground="#2a3050",
+            activeforeground="#f3f4ff",
             relief="flat",
             bd=0,
-            highlightthickness=1,
-            highlightbackground=self.colors["border"],
-            highlightcolor=self.colors["accent"],
-            font=("Segoe UI", 11),
-        )
-        self.cmd_entry.pack(side="left", fill="x", expand=True, ipady=10)
-        self.cmd_entry.bind("<Return>", lambda e: self._send_command())
-
-        self.send_btn = RoundedButton(
-            entry_row,
-            text="보내기",
-            command=self._send_command,
-            width=118,
-            height=44,
-            radius=20,
-            bg=self.colors["button_bg"],
-            fg=self.colors["button_fg"],
-            hover_bg=self.colors["button_hover"],
-            active_bg=self.colors["accent"],
-            active_fg="#0b0b14",
-        )
-        self.send_btn.pack(side="left", padx=(10, 0))
-
-        tk.Label(
-            command_box,
-            text="예: 크롬 켜줘 / 유튜브 재생 눌러줘 / 오른쪽에 있는 닫기 눌러줘",
-            bg=self.colors["panel"],
-            fg=self.colors["muted"],
-            font=("Segoe UI", 9),
-            anchor="w",
-        ).pack(anchor="w", pady=(10, 0))
-
-        log_section = tk.Frame(main_panel, bg=self.colors["panel"])
-        log_section.pack(fill="both", expand=True)
-
-        log_header = tk.Frame(log_section, bg=self.colors["panel"])
-        log_header.pack(fill="x", pady=(0, 6))
-
-        tk.Label(
-            log_header,
-            text="응답 창",
-            bg=self.colors["panel"],
-            fg=self.colors["muted"],
+            padx=14,
+            pady=8,
             font=("Segoe UI Semibold", 9),
-        ).pack(side="left")
-
-        self.clear_log_btn = RoundedButton(
-            log_header,
-            text="지우기",
-            command=self._clear_log,
-            width=86,
-            height=36,
-            radius=16,
-            bg=self.colors["button_bg"],
-            fg=self.colors["button_fg"],
-            hover_bg=self.colors["button_hover"],
-            active_bg=self.colors["accent"],
-            active_fg="#0b0b14",
-            font=("Segoe UI Semibold", 9),
+            cursor="hand2",
+            highlightthickness=0,
         )
-        self.clear_log_btn.pack(side="right")
+        self.clear_btn.pack(side="right")
 
         log_wrap = tk.Frame(
-            log_section,
+            main_panel,
             bg=self.colors["log_bg"],
             highlightbackground=self.colors["border"],
             highlightthickness=1,
@@ -386,15 +289,75 @@ class AkoGUI(tk.Tk):
             selectbackground=self.colors["accent_soft"],
             relief="flat",
             bd=0,
-            padx=14,
-            pady=14,
+            padx=16,
+            pady=16,
             font=("Consolas", 10),
         )
         self.log_text.pack(fill="both", expand=True)
 
+        bottom = tk.Frame(root, bg=self.colors["bg"])
+        bottom.pack(fill="x", pady=(14, 0))
+
+        input_shell = tk.Frame(
+            bottom,
+            bg=self.colors["entry_bg"],
+            highlightbackground="#3a3d49",
+            highlightthickness=1,
+            bd=0,
+            padx=14,
+            pady=10,
+        )
+        input_shell.pack(fill="x")
+
+        self.msg_entry = tk.Entry(
+            input_shell,
+            bg=self.colors["entry_bg"],
+            fg=self.colors["muted"],
+            insertbackground=self.colors["text"],
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 12),
+        )
+        self.msg_entry.pack(side="left", fill="x", expand=True, padx=(2, 10), ipady=6)
+        self.msg_entry.bind("<Return>", lambda e: self._send_message())
+        self.msg_entry.bind("<FocusIn>", self._on_entry_focus_in)
+        self.msg_entry.bind("<FocusOut>", self._on_entry_focus_out)
+
+        self._set_placeholder()
+
+        self.send_btn = RoundIconButton(
+            input_shell,
+            command=self._send_message,
+            size=40,
+            bg="#f2f4ff",
+            fg="#0c0f1a",
+            hover_bg="#ffffff",
+            disabled_bg="#666b88",
+        )
+        self.send_btn.pack(side="right")
+
     # ------------------------------------------------------------------
-    # actions
+    # helpers
     # ------------------------------------------------------------------
+    def _set_placeholder(self):
+        self.msg_entry.delete(0, "end")
+        self.msg_entry.insert(0, self._placeholder_text)
+        self.msg_entry.configure(fg=self.colors["muted"])
+        self._placeholder_active = True
+
+    def _clear_placeholder(self):
+        if self._placeholder_active:
+            self.msg_entry.delete(0, "end")
+            self.msg_entry.configure(fg=self.colors["entry_fg"])
+            self._placeholder_active = False
+
+    def _on_entry_focus_in(self, _event):
+        self._clear_placeholder()
+
+    def _on_entry_focus_out(self, _event):
+        if not self.msg_entry.get().strip():
+            self._set_placeholder()
+
     def _append_log(self, line: str):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", line + "\n")
@@ -410,46 +373,101 @@ class AkoGUI(tk.Tk):
         self.controller.toggle_power()
         self._refresh_ui()
 
-    def _send_command(self):
-        text = self.cmd_entry.get().strip()
-        if not text:
+    def _send_message(self):
+        text = self.msg_entry.get().strip()
+        if self._placeholder_active or not text:
             return
 
-        self.cmd_entry.delete(0, "end")
+        self.msg_entry.delete(0, "end")
+        self._set_placeholder()
+
         self._append_log(f"[나] {text}")
-        self.status_line.configure(text="명령 처리 중...")
-        self.controller.handle_text_command(text)
-        self._refresh_ui()
-        self.status_line.configure(text="대기 중")
+        self.status_line.configure(text="메시지 처리 중...")
+
+        worker = threading.Thread(
+            target=self._handle_message_worker,
+            args=(text,),
+            daemon=True,
+        )
+        worker.start()
+
+    # ------------------------------------------------------------------
+    # message routing
+    # ------------------------------------------------------------------
+    def _handle_message_worker(self, text: str):
+        try:
+            handled = False
+
+            # 1) 명령 우선 시도
+            if hasattr(self.controller, "is_command_text"):
+                try:
+                    handled = bool(self.controller.is_command_text(text))
+                except Exception:
+                    handled = False
+            else:
+                command_hints = [
+                    "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭", "검색",
+                    "닫아", "삭제", "입력", "가줘", "가자", "해줘",
+                ]
+                handled = any(k in text for k in command_hints)
+
+            if handled:
+                self.controller.handle_text_command(text)
+                self.after(0, lambda: self.status_line.configure(text="명령 실행 완료"))
+                return
+
+            # 2) 일반 대화 처리
+            reply = None
+
+            if hasattr(self.controller, "chat"):
+                reply = self.controller.chat(text)
+            elif hasattr(self.controller, "handle_chat"):
+                reply = self.controller.handle_chat(text)
+            elif hasattr(self.controller, "reply_text"):
+                reply = self.controller.reply_text(text)
+            else:
+                reply = (
+                    "지금은 일반 대화 함수가 아직 연결되지 않았어요.\n"
+                    "컨트롤러에 chat(text) 같은 메서드를 연결하면 일상대화도 바로 붙일 수 있어요."
+                )
+
+            self.after(0, lambda: self._append_log(f"[아코] {reply}"))
+            self.after(0, lambda: self.status_line.configure(text="대기 중"))
+
+        except Exception as e:
+            self.after(0, lambda: self._append_log(f"[오류] {e}"))
+            self.after(0, lambda: self.status_line.configure(text="오류 발생"))
 
     def _refresh_ui(self):
         on = self.controller.powered_on
 
-        self.power_btn.configure_text("전원 끄기" if on else "전원 켜기")
-
-        cmd_enabled = on and self.controller.command_on
-        entry_state = "normal" if cmd_enabled else "disabled"
-        self.cmd_entry.configure(state=entry_state)
-        self.send_btn.configure_state(cmd_enabled)
-        self.clear_log_btn.configure_state(True)
+        self.power_btn.configure(text="전원 끄기" if on else "전원 켜기")
 
         if not on:
             self.power_chip.configure(
                 text="꺼짐",
-                bg=self.colors["panel_2"],
-                fg=self.colors["muted"],
+                bg=self.colors["chip_off_bg"],
+                fg=self.colors["chip_off_fg"],
             )
-            self.power_btn.configure_state(True)
+            self.msg_entry.configure(state="disabled")
+            self.send_btn.configure_state(False)
             self.status_line.configure(text="전원 꺼짐")
         else:
             self.power_chip.configure(
                 text="켜짐",
-                bg=self.colors["accent_soft"],
-                fg=self.colors["accent"],
+                bg=self.colors["chip_on_bg"],
+                fg=self.colors["chip_on_fg"],
             )
-            self.power_btn.configure_state(True)
-            if self.status_line.cget("text") in ("대기 중", "전원 꺼짐"):
-                self.status_line.configure(text="준비 완료")
+            self.msg_entry.configure(state="normal")
+            self.send_btn.configure_state(True)
+
+            if self._placeholder_active:
+                self.msg_entry.configure(fg=self.colors["muted"])
+            else:
+                self.msg_entry.configure(fg=self.colors["entry_fg"])
+
+            if self.status_line.cget("text") in ("전원 꺼짐", "대기 중"):
+                self.status_line.configure(text="대기 중")
 
     def _on_close(self):
         try:
