@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import requests
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -120,8 +120,54 @@ class AkoController:
 
 
     def chat(self, text: str) -> str:
-        # 여기서 LLM 또는 기존 응답 엔진 연결
-        return f"일반 대화 테스트 응답: {text}"
+        text = (text or "").strip()
+        if not text:
+            return ""
+
+        if not self.powered_on:
+            return "전원이 꺼져 있어서 대화할 수 없어요."
+
+        try:
+            resp = requests.post(
+                "http://localhost:11434/api/chat",
+                json={
+                    "model": "qwen3:4b",
+                    "stream": False,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "너는 Ako라는 로컬 비서야. "
+                                "답변은 한국어로 자연스럽고 짧고 친절하게 해. "
+                                "쓸데없이 길게 말하지 말고, 사용자와 편하게 대화해."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": text,
+                        },
+                    ],
+                    "keep_alive": "5m",
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            message = data.get("message", {})
+            content = (message.get("content") or "").strip()
+
+            if not content:
+                return "응답은 왔는데 내용이 비어 있어요."
+
+            return content
+
+        except requests.exceptions.ConnectionError:
+            return "Ollama 서버에 연결하지 못했어요. Ollama가 실행 중인지 확인해 주세요."
+        except requests.exceptions.Timeout:
+            return "응답 시간이 너무 오래 걸렸어요. 더 가벼운 모델을 쓰거나 다시 시도해 주세요."
+        except Exception as e:
+            return f"Ollama 대화 오류: {e}"
 
     # ---------------- voice ----------------
     def set_voice(self, on: bool, cfg: Optional[VoiceConfig] = None) -> None:

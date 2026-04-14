@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import threading
 import tkinter as tk
 
 from loading_overlay import LoadingOverlay
@@ -323,7 +322,20 @@ class AkoGUI(tk.Tk):
         self.msg_entry.bind("<FocusIn>", self._on_entry_focus_in)
         self.msg_entry.bind("<FocusOut>", self._on_entry_focus_out)
 
-        self._set_placeholder()
+        def _send_message(self):
+            text = self.msg_entry.get().strip()
+            if self._placeholder_active or not text:
+                return
+
+            self.msg_entry.delete(0, "end")
+            self.msg_entry.configure(fg=self.colors["entry_fg"])
+            self._placeholder_active = False
+
+            self._append_log(f"[나] {text}")
+            self.status_line.configure(text="메시지 처리 중...")
+
+            self._handle_message(text)
+            self.msg_entry.focus_set()
 
         self.send_btn = RoundIconButton(
             input_shell,
@@ -384,21 +396,15 @@ class AkoGUI(tk.Tk):
         self._append_log(f"[나] {text}")
         self.status_line.configure(text="메시지 처리 중...")
 
-        worker = threading.Thread(
-            target=self._handle_message_worker,
-            args=(text,),
-            daemon=True,
-        )
-        worker.start()
+        self._handle_message(text)
 
     # ------------------------------------------------------------------
     # message routing
     # ------------------------------------------------------------------
-    def _handle_message_worker(self, text: str):
+    def _handle_message(self, text: str):
         try:
             handled = False
 
-            # 1) 명령 우선 시도
             if hasattr(self.controller, "is_command_text"):
                 try:
                     handled = bool(self.controller.is_command_text(text))
@@ -413,8 +419,29 @@ class AkoGUI(tk.Tk):
 
             if handled:
                 self.controller.handle_text_command(text)
-                self.after(0, lambda: self.status_line.configure(text="명령 실행 완료"))
+                self.status_line.configure(text="명령 실행 완료")
                 return
+
+            reply = None
+
+            if hasattr(self.controller, "chat"):
+                reply = self.controller.chat(text)
+            elif hasattr(self.controller, "handle_chat"):
+                reply = self.controller.handle_chat(text)
+            elif hasattr(self.controller, "reply_text"):
+                reply = self.controller.reply_text(text)
+            else:
+                reply = (
+                    "지금은 일반 대화 함수가 아직 연결되지 않았어요.\n"
+                    "컨트롤러에 chat(text) 같은 메서드를 연결하면 일상대화도 바로 붙일 수 있어요."
+                )
+
+            self._append_log(f"[아코] {reply}")
+            self.status_line.configure(text="대기 중")
+
+        except Exception as e:
+            self._append_log(f"[오류] {e}")
+            self.status_line.configure(text="오류 발생")
 
             # 2) 일반 대화 처리
             reply = None
