@@ -110,6 +110,18 @@ class AkoController:
             self.log(f"[Ako] 오류: {e}")
             return
         self.log(f"[Ako] {result}")
+    
+    def is_command_text(self, text: str) -> bool:
+        keywords = [
+            "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭",
+            "닫아", "입력", "검색", "삭제", "가줘", "해줘"
+    ]
+        return any(k in text for k in keywords)
+
+
+    def chat(self, text: str) -> str:
+        # 여기서 LLM 또는 기존 응답 엔진 연결
+        return f"일반 대화 테스트 응답: {text}"
 
     # ---------------- voice ----------------
     def set_voice(self, on: bool, cfg: Optional[VoiceConfig] = None) -> None:
@@ -191,3 +203,4 @@ class AkoController:
         if self.voice_on:
             self.voice_on = False
             self.log("음성 인식 OFF")
+
