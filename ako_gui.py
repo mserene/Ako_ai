@@ -5,10 +5,11 @@ import os
 import sys
 from tkinter import ttk, filedialog, messagebox
 
-from splash_hud import HudSplash
+from loading_overlay import LoadingOverlay
 from core.controller import AkoController
 from core.config import load_config, save_config, is_writable_dir
 from voice_loop import VoiceConfig
+
 
 def resource_path(rel_path: str) -> str:
     """PyInstaller(onedir/onefile) 모두 대응"""
@@ -23,11 +24,13 @@ class AkoGUI(tk.Tk):
             self.iconbitmap(resource_path(os.path.join("assets", "ako.ico")))
         except Exception:
             pass
+
         self.title("Ako")
         self.geometry("620x420")
         self.minsize(620, 420)
 
         self.controller = AkoController(log_fn=self._append_log)
+        self.loading_overlay: LoadingOverlay | None = None
 
         # load persistent config
         self.cfg, self.cfg_path = load_config()
@@ -50,13 +53,22 @@ class AkoGUI(tk.Tk):
         self._refresh_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ---- model dir handlers ---- (중복 제거: 단일 구현으로 통합)
+        # same-window loading overlay
+        self.after(80, self._start_loading_overlay)
+
+    # ---- loading overlay ----
+    def _start_loading_overlay(self):
+        self.loading_overlay = LoadingOverlay(self, on_done=self._finish_loading_overlay)
+
+    def _finish_loading_overlay(self):
+        self.loading_overlay = None
+
+    # ---- model dir handlers ----
     def on_change_model_dir(self):
         chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
         if not chosen:
             return
 
-        # 선택 폴더 검증 (쓰기 불가면 config 건드리지 않고 기본값 유지)
         if not is_writable_dir(chosen):
             messagebox.showerror("폴더 오류", "선택한 폴더에 저장할 수 없어요.\n기본 경로를 계속 사용할게요.")
             self._append_log(f"[MODEL] 적용 실패(쓰기 불가): {chosen}")
@@ -64,7 +76,6 @@ class AkoGUI(tk.Tk):
                 self.model_path_var.set(self.cfg.effective_model_dir)
             return
 
-        # 저장 + 적용
         self.cfg.model_dir = chosen
         save_config(self.cfg, self.cfg_path)
 
@@ -108,13 +119,16 @@ class AkoGUI(tk.Tk):
         self.voice_var = tk.BooleanVar(value=False)
         self.cmd_var = tk.BooleanVar(value=False)
 
-        self.voice_chk = ttk.Checkbutton(box, text="음성 인식", variable=self.voice_var, command=self._toggle_voice)
+        self.voice_chk = ttk.Checkbutton(
+            box, text="음성 인식", variable=self.voice_var, command=self._toggle_voice
+        )
         self.voice_chk.pack(side="left")
 
-        self.cmd_chk = ttk.Checkbutton(box, text="명령창(채팅)", variable=self.cmd_var, command=self._toggle_cmd)
+        self.cmd_chk = ttk.Checkbutton(
+            box, text="명령창(채팅)", variable=self.cmd_var, command=self._toggle_cmd
+        )
         self.cmd_chk.pack(side="left", padx=(16, 0))
 
-        # 음성 옵션
         opt = ttk.Frame(box)
         opt.pack(side="right")
 
@@ -128,12 +142,13 @@ class AkoGUI(tk.Tk):
         self.model_entry.insert(0, "small")
         self.model_entry.pack(side="left", padx=(6, 0))
 
-        # 모델 저장 위치
         path_row = ttk.Frame(box)
         path_row.pack(fill="x", pady=(10, 0))
         ttk.Label(path_row, text="모델 저장 위치:").pack(side="left")
         self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
-        ttk.Label(path_row, textvariable=self.model_path_var).pack(side="left", padx=(8, 8), fill="x", expand=True)
+        ttk.Label(path_row, textvariable=self.model_path_var).pack(
+            side="left", padx=(8, 8), fill="x", expand=True
+        )
         ttk.Button(path_row, text="변경", command=self.on_change_model_dir).pack(side="right", padx=(6, 0))
         ttk.Button(path_row, text="기본값", command=self.on_reset_model_dir).pack(side="right", padx=(6, 0))
 
@@ -151,7 +166,10 @@ class AkoGUI(tk.Tk):
         self.send_btn = ttk.Button(row, text="보내기", command=self._send_command)
         self.send_btn.pack(side="left", padx=(8, 0))
 
-        self.hint = ttk.Label(box, text="예: 크롬 켜줘 / 유튜브 재생 눌러줘 / 오른쪽에 있는 닫기 눌러줘")
+        self.hint = ttk.Label(
+            box,
+            text="예: 크롬 켜줘 / 유튜브 재생 눌러줘 / 오른쪽에 있는 닫기 눌러줘",
+        )
         self.hint.pack(anchor="w", pady=(8, 0))
 
     def _build_log(self):
@@ -240,13 +258,10 @@ class AkoGUI(tk.Tk):
             pass
         self.destroy()
 
-def main():
-    def _launch_main():
-        app = AkoGUI()
-        app.mainloop()
 
-    splash = HudSplash(on_done=_launch_main)
-    splash.mainloop()
+def main():
+    app = AkoGUI()
+    app.mainloop()
 
 
 if __name__ == "__main__":

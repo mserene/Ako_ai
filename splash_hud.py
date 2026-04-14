@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 import tkinter as tk
 from typing import Callable
 
@@ -13,358 +14,343 @@ BOOT_STEPS = [
 ]
 
 
-class HudSplash(tk.Tk):
-    def __init__(self, on_done: Callable[[], None] | None = None):
-        super().__init__()
+class LoadingOverlay(tk.Frame):
+    def __init__(self, master: tk.Misc, on_done: Callable[[], None] | None = None):
+        super().__init__(master, bg="#02040a", bd=0)
+
         self.on_done = on_done
-
-        self.w = 980
-        self.h = 620
-
-        self.progress = 0
+        self.progress = 0.0
         self.phase = 0.0
-        self.wave_phase = 0.0
-        self.step_index = 0
+        self.rot = 0.0
         self._done = False
 
-        self.overrideredirect(True)
-        self.configure(bg="#070a14")
-        self.geometry(f"{self.w}x{self.h}")
-        self.minsize(self.w, self.h)
-
-        self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        x = (sw - self.w) // 2
-        y = (sh - self.h) // 2
-        self.geometry(f"{self.w}x{self.h}+{x}+{y}")
+        self.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.lift()
 
         self.canvas = tk.Canvas(
             self,
-            width=self.w,
-            height=self.h,
-            bg="#070a14",
+            bg="#02040a",
             highlightthickness=0,
             bd=0,
         )
         self.canvas.pack(fill="both", expand=True)
 
-        self.current_status = BOOT_STEPS[0]
+        self.particles: list[dict] = []
+        self.particle_items: list[int] = []
 
-        self._build_static()
-        self._animate()
-        self.after(350, self._advance_progress)
+        self.after(10, self._init_scene)
+        self.after(30, self._tick)
+        self.after(260, self._advance_progress)
 
-    # ------------------------------------------------------------------
-    # build
-    # ------------------------------------------------------------------
-    def _build_static(self):
+    # ------------------------------------------------------------
+    # setup
+    # ------------------------------------------------------------
+    def _init_scene(self):
+        self.update_idletasks()
+        self.w = max(self.winfo_width(), 620)
+        self.h = max(self.winfo_height(), 420)
+
+        self.cx = self.w // 2
+        self.cy = self.h // 2 - 8
+
+        self._build_scene()
+
+    def _build_scene(self):
         w, h = self.w, self.h
-        cx, cy = w // 2, h // 2 - 20
-        self.cx = cx
-        self.cy = cy
+        cx, cy = self.cx, self.cy
 
-        # background layers
-        self.canvas.create_rectangle(0, 0, w, h, fill="#070a14", outline="")
+        self.canvas.delete("all")
 
-        self._draw_background_glow(cx, cy, 250, "#120f24")
-        self._draw_background_glow(cx, cy, 180, "#17122d")
-        self._draw_background_glow(cx, cy, 110, "#20153a")
+        self.canvas.create_rectangle(0, 0, w, h, fill="#02040a", outline="")
+        self.canvas.create_rectangle(0, 0, w, h, fill="#05070f", outline="")
 
-        # subtle top/bottom fades
-        self.canvas.create_rectangle(0, 0, w, 90, fill="#080c18", outline="")
-        self.canvas.create_rectangle(0, h - 90, w, h, fill="#080b17", outline="")
+        self.glow_layers: list[int] = []
+        glow = [
+            (420, "#030611"),
+            (380, "#040816"),
+            (340, "#050a1a"),
+            (300, "#060c1e"),
+            (265, "#071023"),
+            (230, "#081328"),
+            (200, "#0a1730"),
+            (175, "#0b1a37"),
+            (150, "#0d1d3d"),
+            (126, "#102246"),
+            (104, "#132952"),
+            (84,  "#16315d"),
+            (66,  "#1a3b6d"),
+            (50,  "#1f467a"),
+        ]
+        for r, color in glow:
+            item = self.canvas.create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                fill=color,
+                outline="",
+            )
+            self.glow_layers.append(item)
 
-        # decorative thin frame
-        self.canvas.create_line(54, 46, w - 54, 46, fill="#171d34", width=1)
-        self.canvas.create_line(54, h - 46, w - 54, h - 46, fill="#171d34", width=1)
+        self.outer_ring = self.canvas.create_oval(
+            cx - 165, cy - 165, cx + 165, cy + 165,
+            outline="#63d4ff",
+            width=2,
+        )
+        self.inner_ring = self.canvas.create_oval(
+            cx - 82, cy - 82, cx + 82, cy + 82,
+            outline="#315ff4",
+            width=2,
+        )
 
-        # small title
-        self.title_text = self.canvas.create_text(
+        self.canvas.create_oval(
+            cx - 184, cy - 184, cx + 184, cy + 184,
+            outline="#0d2035",
+            width=1,
+        )
+
+        self._make_particles()
+
+        for _ in self.particles:
+            item = self.canvas.create_oval(0, 0, 0, 0, outline="", fill="#163050")
+            self.particle_items.append(item)
+
+        self.ako_text = self.canvas.create_text(
             cx,
-            110,
+            cy,
             text="AKO",
-            fill="#8d73d9",
-            font=("Segoe UI", 10, "bold"),
+            fill="#dff6ff",
+            font=("Segoe UI Semibold", 42, "bold"),
             anchor="center",
         )
-
-        # central aura
-        self.aura_outer = self.canvas.create_oval(
-            cx - 130, cy - 130, cx + 130, cy + 130,
-            outline="",
-            fill="#151028",
-        )
-        self.aura_mid = self.canvas.create_oval(
-            cx - 92, cy - 92, cx + 92, cy + 92,
-            outline="",
-            fill="#1b1430",
-        )
-        self.aura_inner = self.canvas.create_oval(
-            cx - 58, cy - 58, cx + 58, cy + 58,
-            outline="",
-            fill="#23183d",
-        )
-
-        # AKO letters built separately
-        self.letter_a = self.canvas.create_text(
-            cx - 82,
-            cy,
-            text="A",
-            fill="#2a2144",
-            font=("Segoe UI Semibold", 38, "bold"),
-            anchor="center",
-        )
-        self.letter_k = self.canvas.create_text(
+        self.ako_glow = self.canvas.create_text(
             cx,
             cy,
-            text="K",
-            fill="#2a2144",
-            font=("Segoe UI Semibold", 38, "bold"),
+            text="AKO",
+            fill="#66ccff",
+            font=("Segoe UI Semibold", 42, "bold"),
             anchor="center",
         )
-        self.letter_o = self.canvas.create_text(
-            cx + 82,
-            cy,
-            text="O",
-            fill="#2a2144",
-            font=("Segoe UI Semibold", 38, "bold"),
-            anchor="center",
+        self.canvas.tag_lower(self.ako_glow, self.ako_text)
+
+        x1, y1, x2, y2 = self.canvas.bbox(self.ako_text)
+        pad = 12
+        self.text_bbox = (x1 - pad, y1 - pad, x2 + pad, y2 + pad)
+        self.text_mask = self.canvas.create_rectangle(
+            x1 - pad, y1 - pad, x2 + pad, y2 + pad,
+            fill="#02040a",
+            outline="",
         )
 
-        # letter underline fragments
-        self.line_a = self.canvas.create_line(
-            cx - 110, cy + 42, cx - 56, cy + 42,
-            fill="#2a2144", width=2
-        )
-        self.line_k = self.canvas.create_line(
-            cx - 26, cy + 42, cx + 26, cy + 42,
-            fill="#2a2144", width=2
-        )
-        self.line_o = self.canvas.create_line(
-            cx + 56, cy + 42, cx + 110, cy + 42,
-            fill="#2a2144", width=2
-        )
-
-        # soft orbital / symbol wave around AKO
-        self.wave_items = []
-        self._create_symbol_waves()
-
-        # small status text
         self.status_text = self.canvas.create_text(
             cx,
-            cy + 118,
-            text=self.current_status,
-            fill="#9f8adf",
+            cy + 122,
+            text=BOOT_STEPS[0],
+            fill="#86bde0",
             font=("Consolas", 11, "bold"),
             anchor="center",
         )
 
-        # ready text, initially hidden
         self.ready_text = self.canvas.create_text(
             cx,
             cy + 154,
             text="",
-            fill="#d8d1f5",
-            font=("Segoe UI", 14, "bold"),
+            fill="#cfefff",
+            font=("Segoe UI", 13, "bold"),
             anchor="center",
         )
 
-        # minimal bottom indicators
-        self.progress_left = self.canvas.create_text(
-            cx - 86,
-            h - 112,
-            text="STATE",
-            fill="#5f5b7c",
-            font=("Consolas", 10),
-            anchor="e",
-        )
-        self.progress_label = self.canvas.create_text(
-            cx - 70,
-            h - 112,
+        self.percent_text = self.canvas.create_text(
+            cx,
+            h - 86,
             text="00%",
-            fill="#b8a9ee",
+            fill="#7fc8ff",
             font=("Consolas", 10, "bold"),
-            anchor="w",
+            anchor="center",
         )
 
         self.bar_bg = self.canvas.create_line(
-            cx - 70, h - 92, cx + 70, h - 92,
-            fill="#24263a", width=2
+            cx - 62, h - 64, cx + 62, h - 64,
+            fill="#0f2134",
+            width=2,
         )
         self.bar_fill = self.canvas.create_line(
-            cx - 70, h - 92, cx - 70, h - 92,
-            fill="#8e73f0", width=2
+            cx - 62, h - 64, cx - 62, h - 64,
+            fill="#75d7ff",
+            width=2,
         )
 
-    def _draw_background_glow(self, cx: int, cy: int, r: int, color: str):
-        self.canvas.create_oval(
-            cx - r, cy - r, cx + r, cy + r,
-            fill=color, outline=""
-        )
-
-    def _create_symbol_waves(self):
-        cx, cy = self.cx, self.cy
-        base_r = 96
-
-        for i in range(28):
-            angle = (360 / 28) * i
-            rad = math.radians(angle)
-            x1 = cx + math.cos(rad) * (base_r - 6)
-            y1 = cy + math.sin(rad) * (base_r - 6)
-            x2 = cx + math.cos(rad) * (base_r + 6)
-            y2 = cy + math.sin(rad) * (base_r + 6)
-
-            item = self.canvas.create_line(
-                x1, y1, x2, y2,
-                fill="#211b35",
-                width=2,
-                capstyle=tk.ROUND,
+        self.dust = []
+        for _ in range(45):
+            dx = random.randint(0, w)
+            dy = random.randint(0, h)
+            r = random.choice((1, 1, 1, 2))
+            c = random.choice(("#061220", "#0b1930", "#10203b", "#173058"))
+            self.dust.append(
+                self.canvas.create_oval(dx - r, dy - r, dx + r, dy + r, outline="", fill=c)
             )
-            self.wave_items.append((item, angle))
 
-    # ------------------------------------------------------------------
+    def _make_particles(self):
+        self.particles.clear()
+        random.seed(7)
+
+        for _ in range(240):
+            u = random.random()
+            v = random.random()
+
+            theta = 2 * math.pi * u
+            phi = math.acos(2 * v - 1)
+
+            radius = 155 + random.uniform(-8, 8)
+
+            x = radius * math.sin(phi) * math.cos(theta)
+            y = radius * math.cos(phi)
+            z = radius * math.sin(phi) * math.sin(theta)
+
+            self.particles.append(
+                {
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                    "size": random.uniform(1.0, 2.6),
+                    "bias": random.uniform(0.75, 1.25),
+                }
+            )
+
+    # ------------------------------------------------------------
     # animation
-    # ------------------------------------------------------------------
-    def _animate(self):
+    # ------------------------------------------------------------
+    def _tick(self):
+        if not hasattr(self, "canvas") or not hasattr(self, "particles"):
+            self.after(33, self._tick)
+            return
+
         if self._done:
             return
 
-        self.phase += 0.06
-        self.wave_phase += 3.2
+        self.phase += 0.045
+        self.rot += 0.018
 
-        self._animate_aura()
-        self._animate_letters()
-        self._animate_symbol_waves()
+        self._animate_rings()
+        self._animate_particles()
+        self._animate_text_reveal()
+        self._animate_glow()
 
-        self.after(33, self._animate)
+        self.after(33, self._tick)
 
-    def _animate_aura(self):
+    def _animate_rings(self):
         cx, cy = self.cx, self.cy
 
-        pulse1 = math.sin(self.phase) * 5
-        pulse2 = math.sin(self.phase * 1.25 + 0.8) * 4
-        pulse3 = math.sin(self.phase * 1.5 + 1.7) * 3
+        outer_pulse = math.sin(self.phase * 1.2) * 2.5
+        inner_pulse = math.sin(self.phase * 1.6 + 0.7) * 1.5
 
         self.canvas.coords(
-            self.aura_outer,
-            cx - (130 + pulse1), cy - (130 + pulse1),
-            cx + (130 + pulse1), cy + (130 + pulse1)
+            self.outer_ring,
+            cx - (165 + outer_pulse), cy - (165 + outer_pulse),
+            cx + (165 + outer_pulse), cy + (165 + outer_pulse),
         )
         self.canvas.coords(
-            self.aura_mid,
-            cx - (92 + pulse2), cy - (92 + pulse2),
-            cx + (92 + pulse2), cy + (92 + pulse2)
-        )
-        self.canvas.coords(
-            self.aura_inner,
-            cx - (58 + pulse3), cy - (58 + pulse3),
-            cx + (58 + pulse3), cy + (58 + pulse3)
+            self.inner_ring,
+            cx - (82 + inner_pulse), cy - (82 + inner_pulse),
+            cx + (82 + inner_pulse), cy + (82 + inner_pulse),
         )
 
-        # subtle color breathing
-        glow_mix = int(40 + (math.sin(self.phase) + 1) * 12)
-        mid_mix = int(52 + (math.sin(self.phase * 1.2) + 1) * 10)
-        inner_mix = int(64 + (math.sin(self.phase * 1.4) + 1) * 10)
+        t = 0.55 + 0.45 * ((math.sin(self.phase) + 1) / 2)
+        outer = self._blend("#2f5d86", "#c7f5ff", t)
+        inner = self._blend("#233c8c", "#4e8bff", 0.45 + 0.4 * ((math.sin(self.phase * 1.3) + 1) / 2))
 
-        self.canvas.itemconfigure(self.aura_outer, fill=self._hex_rgb(18, 12, glow_mix))
-        self.canvas.itemconfigure(self.aura_mid, fill=self._hex_rgb(28, 18, mid_mix))
-        self.canvas.itemconfigure(self.aura_inner, fill=self._hex_rgb(38, 22, inner_mix))
+        self.canvas.itemconfigure(self.outer_ring, outline=outer)
+        self.canvas.itemconfigure(self.inner_ring, outline=inner)
 
-    def _animate_letters(self):
-        # reveal by progress
-        # A first, then K, then O, then underline fragments, then final brighten
-        p = self.progress
+    def _animate_particles(self):
+        cx, cy = self.cx, self.cy
+        perspective = 520
+        reveal = self._segment(self.progress, 4, 72)
 
-        a_color = self._blend_color("#2a2144", "#c9b6ff", self._segment(p, 5, 35))
-        k_color = self._blend_color("#2a2144", "#d7c8ff", self._segment(p, 20, 55))
-        o_color = self._blend_color("#2a2144", "#ece4ff", self._segment(p, 38, 72))
+        for p, item in zip(self.particles, self.particle_items):
+            x = p["x"]
+            y = p["y"]
+            z = p["z"]
 
-        line_a = self._blend_color("#2a2144", "#7e67cf", self._segment(p, 12, 42))
-        line_k = self._blend_color("#2a2144", "#8d73f0", self._segment(p, 28, 58))
-        line_o = self._blend_color("#2a2144", "#a28bff", self._segment(p, 45, 75))
+            ry = self.rot * p["bias"]
+            x1 = x * math.cos(ry) + z * math.sin(ry)
+            z1 = -x * math.sin(ry) + z * math.cos(ry)
 
-        self.canvas.itemconfigure(self.letter_a, fill=a_color)
-        self.canvas.itemconfigure(self.letter_k, fill=k_color)
-        self.canvas.itemconfigure(self.letter_o, fill=o_color)
+            wobble = math.sin(self.phase * 2.1 + x1 * 0.02 + y * 0.02) * 10.0 * reveal
+            z1 += wobble
 
-        self.canvas.itemconfigure(self.line_a, fill=line_a)
-        self.canvas.itemconfigure(self.line_k, fill=line_k)
-        self.canvas.itemconfigure(self.line_o, fill=line_o)
+            rx = 0.65 + math.sin(self.phase * 0.7) * 0.04
+            y2 = y * math.cos(rx) - z1 * math.sin(rx)
+            z2 = y * math.sin(rx) + z1 * math.cos(rx)
 
-        # slight floating motion
-        a_dy = math.sin(self.phase * 1.3) * 1.5
-        k_dy = math.sin(self.phase * 1.2 + 0.8) * 1.2
-        o_dy = math.sin(self.phase * 1.4 + 1.6) * 1.5
+            scale = perspective / (perspective + z2 + 260)
+            sx = cx + x1 * scale
+            sy = cy + y2 * scale
 
-        self.canvas.coords(self.letter_a, self.cx - 82, self.cy + a_dy)
-        self.canvas.coords(self.letter_k, self.cx, self.cy + k_dy)
-        self.canvas.coords(self.letter_o, self.cx + 82, self.cy + o_dy)
+            depth = max(0.0, min(1.0, (z2 + 190) / 380))
+            light = 0.15 + 0.85 * depth * reveal
 
-        self.canvas.coords(self.line_a, self.cx - 110, self.cy + 42 + a_dy, self.cx - 56, self.cy + 42 + a_dy)
-        self.canvas.coords(self.line_k, self.cx - 26, self.cy + 42 + k_dy, self.cx + 26, self.cy + 42 + k_dy)
-        self.canvas.coords(self.line_o, self.cx + 56, self.cy + 42 + o_dy, self.cx + 110, self.cy + 42 + o_dy)
+            size = p["size"] * scale * (0.8 + 0.5 * reveal)
+            size = max(0.8, min(3.2, size))
 
-    def _animate_symbol_waves(self):
-        # subtle pulse around symbol
-        strength = self._segment(self.progress, 28, 100)
+            color = self._blend("#0b1830", "#82e7ff", light)
 
-        for item, angle in self.wave_items:
-            local = (math.sin(math.radians(angle * 2 + self.wave_phase)) + 1) / 2
-            amt = 0.18 + (0.82 * local * strength)
+            self.canvas.coords(item, sx - size, sy - size, sx + size, sy + size)
+            self.canvas.itemconfigure(item, fill=color)
 
-            color = self._blend_color("#211b35", "#8f78ee", amt * 0.7)
-            width = 1 if amt < 0.45 else 2
+    def _animate_text_reveal(self):
+        x1, y1, x2, y2 = self.text_bbox
+        t = self._segment(self.progress, 34, 86)
 
-            rad = math.radians(angle)
-            r1 = 96 + math.sin(math.radians(self.wave_phase + angle)) * 2
-            r2 = 108 + math.sin(math.radians(self.wave_phase * 1.2 + angle * 1.6)) * 3
+        cover_left = x1 + (x2 - x1) * t
+        self.canvas.coords(self.text_mask, cover_left, y1, x2, y2)
 
-            x1 = self.cx + math.cos(rad) * r1
-            y1 = self.cy + math.sin(rad) * r1
-            x2 = self.cx + math.cos(rad) * r2
-            y2 = self.cy + math.sin(rad) * r2
+        glow_mix = self._segment(self.progress, 52, 100)
+        self.canvas.itemconfigure(self.ako_glow, fill=self._blend("#0e2540", "#66d8ff", glow_mix))
+        self.canvas.itemconfigure(self.ako_text, fill=self._blend("#163150", "#e8fbff", glow_mix))
 
-            self.canvas.coords(item, x1, y1, x2, y2)
-            self.canvas.itemconfigure(item, fill=color, width=width)
+        offset = math.sin(self.phase * 2.4) * 1.2
+        self.canvas.coords(self.ako_glow, self.cx, self.cy + offset)
+        self.canvas.coords(self.ako_text, self.cx, self.cy)
 
-    # ------------------------------------------------------------------
-    # progress / state
-    # ------------------------------------------------------------------
+    def _animate_glow(self):
+        breathe = (math.sin(self.phase * 0.9) + 1) / 2
+
+        ring_color = self._blend("#061120", "#0f2a48", 0.35 + 0.45 * breathe)
+        self.canvas.itemconfigure(self.bar_bg, fill=ring_color)
+
+        if self.progress >= 84:
+            ready_mix = self._segment(self.progress, 84, 100)
+            ready_color = self._blend("#17324f", "#dff8ff", ready_mix)
+            self.canvas.itemconfigure(self.ready_text, text="AKO IS READY", fill=ready_color)
+
+    # ------------------------------------------------------------
+    # progress
+    # ------------------------------------------------------------
     def _advance_progress(self):
         if self._done:
             return
 
         self.progress = min(self.progress + 2, 100)
 
-        if self.progress < 30:
-            self.step_index = 0
+        if self.progress < 32:
+            idx = 0
         elif self.progress < 58:
-            self.step_index = 1
+            idx = 1
         elif self.progress < 84:
-            self.step_index = 2
+            idx = 2
         else:
-            self.step_index = 3
+            idx = 3
 
-        self.current_status = BOOT_STEPS[self.step_index]
+        self.canvas.itemconfigure(self.status_text, text=BOOT_STEPS[idx])
+        self.canvas.itemconfigure(self.percent_text, text=f"{int(self.progress):02d}%")
 
-        self.canvas.itemconfigure(self.status_text, text=self.current_status)
-        self.canvas.itemconfigure(self.progress_label, text=f"{self.progress:02d}%")
-
-        end_x = (self.cx - 70) + int(140 * (self.progress / 100))
-        self.canvas.coords(self.bar_fill, self.cx - 70, self.h - 92, end_x, self.h - 92)
-
-        if self.progress >= 84:
-            alpha = self._segment(self.progress, 84, 100)
-            ready_color = self._blend_color("#3a3056", "#ebe2ff", alpha)
-            self.canvas.itemconfigure(self.ready_text, text="AKO IS READY", fill=ready_color)
+        bar_end = (self.cx - 62) + int(124 * (self.progress / 100.0))
+        self.canvas.coords(self.bar_fill, self.cx - 62, self.h - 64, bar_end, self.h - 64)
 
         if self.progress >= 100:
             self._done = True
-            self.after(700, self._finish)
+            self.after(500, self._finish)
             return
 
-        delay = 85 if self.progress < 70 else 105
+        delay = 75 if self.progress < 70 else 95
         self.after(delay, self._advance_progress)
 
     def _finish(self):
@@ -372,9 +358,9 @@ class HudSplash(tk.Tk):
         if self.on_done:
             self.on_done()
 
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------
     # utils
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------
     def _segment(self, value: float, start: float, end: float) -> float:
         if value <= start:
             return 0.0
@@ -382,7 +368,7 @@ class HudSplash(tk.Tk):
             return 1.0
         return (value - start) / (end - start)
 
-    def _blend_color(self, c1: str, c2: str, t: float) -> str:
+    def _blend(self, c1: str, c2: str, t: float) -> str:
         t = max(0.0, min(1.0, t))
         r1, g1, b1 = self._hex_to_rgb(c1)
         r2, g2, b2 = self._hex_to_rgb(c2)
@@ -390,17 +376,8 @@ class HudSplash(tk.Tk):
         r = int(r1 + (r2 - r1) * t)
         g = int(g1 + (g2 - g1) * t)
         b = int(b1 + (b2 - b1) * t)
-        return self._rgb_to_hex(r, g, b)
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _hex_to_rgb(self, value: str):
         value = value.lstrip("#")
         return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
-
-    def _rgb_to_hex(self, r: int, g: int, b: int) -> str:
-        return f"#{r:02x}{g:02x}{b:02x}"
-
-    def _hex_rgb(self, r: int, g: int, b: int) -> str:
-        r = max(0, min(255, r))
-        g = max(0, min(255, g))
-        b = max(0, min(255, b))
-        return f"#{r:02x}{g:02x}{b:02x}"
