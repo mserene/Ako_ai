@@ -138,6 +138,7 @@ class AkoGUI(tk.Tk):
         self._placeholder_active = True
 
         self._build_ui()
+        self._set_placeholder()
         self._refresh_ui()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -145,9 +146,6 @@ class AkoGUI(tk.Tk):
         self._start_loading_overlay()
         self.deiconify()
 
-    # ------------------------------------------------------------------
-    # loading
-    # ------------------------------------------------------------------
     def _start_loading_overlay(self):
         self.loading_overlay = LoadingOverlay(
             self,
@@ -158,9 +156,6 @@ class AkoGUI(tk.Tk):
     def _finish_loading_overlay(self):
         self.loading_overlay = None
 
-    # ------------------------------------------------------------------
-    # ui
-    # ------------------------------------------------------------------
     def _build_ui(self):
         root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=18)
         root.pack(fill="both", expand=True)
@@ -176,12 +171,12 @@ class AkoGUI(tk.Tk):
             text="AKO",
             bg=self.colors["bg"],
             fg=self.colors["accent"],
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Semibold", 22),
         ).pack(anchor="w")
 
         tk.Label(
             header_left,
-            text="대화 인터페이스",
+            text="",
             bg=self.colors["bg"],
             fg=self.colors["text"],
             font=("Segoe UI Semibold", 22),
@@ -189,7 +184,7 @@ class AkoGUI(tk.Tk):
 
         tk.Label(
             header_left,
-            text="명령도 실행하고 일상대화도 가능한 채팅 화면",
+            text="채팅 화면",
             bg=self.colors["bg"],
             fg=self.colors["muted"],
             font=("Segoe UI", 10),
@@ -322,21 +317,6 @@ class AkoGUI(tk.Tk):
         self.msg_entry.bind("<FocusIn>", self._on_entry_focus_in)
         self.msg_entry.bind("<FocusOut>", self._on_entry_focus_out)
 
-        def _send_message(self):
-            text = self.msg_entry.get().strip()
-            if self._placeholder_active or not text:
-                return
-
-            self.msg_entry.delete(0, "end")
-            self.msg_entry.configure(fg=self.colors["entry_fg"])
-            self._placeholder_active = False
-
-            self._append_log(f"[나] {text}")
-            self.status_line.configure(text="메시지 처리 중...")
-
-            self._handle_message(text)
-            self.msg_entry.focus_set()
-
         self.send_btn = RoundIconButton(
             input_shell,
             command=self._send_message,
@@ -348,9 +328,6 @@ class AkoGUI(tk.Tk):
         )
         self.send_btn.pack(side="right")
 
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
     def _set_placeholder(self):
         self.msg_entry.delete(0, "end")
         self.msg_entry.insert(0, self._placeholder_text)
@@ -380,10 +357,16 @@ class AkoGUI(tk.Tk):
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+        try:
+            self.controller.clear_chat_history()
+        except Exception:
+            pass
 
     def _toggle_power(self):
         self.controller.toggle_power()
         self._refresh_ui()
+        if self.controller.powered_on:
+            self.msg_entry.focus_set()
 
     def _send_message(self):
         text = self.msg_entry.get().strip()
@@ -391,16 +374,15 @@ class AkoGUI(tk.Tk):
             return
 
         self.msg_entry.delete(0, "end")
-        self._set_placeholder()
+        self.msg_entry.configure(fg=self.colors["entry_fg"])
+        self._placeholder_active = False
 
         self._append_log(f"[나] {text}")
         self.status_line.configure(text="메시지 처리 중...")
 
         self._handle_message(text)
+        self.msg_entry.focus_set()
 
-    # ------------------------------------------------------------------
-    # message routing
-    # ------------------------------------------------------------------
     def _handle_message(self, text: str):
         try:
             handled = False
@@ -422,8 +404,6 @@ class AkoGUI(tk.Tk):
                 self.status_line.configure(text="명령 실행 완료")
                 return
 
-            reply = None
-
             if hasattr(self.controller, "chat"):
                 reply = self.controller.chat(text)
             elif hasattr(self.controller, "handle_chat"):
@@ -438,32 +418,9 @@ class AkoGUI(tk.Tk):
 
             self._append_log(f"[아코] {reply}")
             self.status_line.configure(text="대기 중")
-
         except Exception as e:
             self._append_log(f"[오류] {e}")
             self.status_line.configure(text="오류 발생")
-
-            # 2) 일반 대화 처리
-            reply = None
-
-            if hasattr(self.controller, "chat"):
-                reply = self.controller.chat(text)
-            elif hasattr(self.controller, "handle_chat"):
-                reply = self.controller.handle_chat(text)
-            elif hasattr(self.controller, "reply_text"):
-                reply = self.controller.reply_text(text)
-            else:
-                reply = (
-                    "지금은 일반 대화 함수가 아직 연결되지 않았어요.\n"
-                    "컨트롤러에 chat(text) 같은 메서드를 연결하면 일상대화도 바로 붙일 수 있어요."
-                )
-
-            self.after(0, lambda: self._append_log(f"[아코] {reply}"))
-            self.after(0, lambda: self.status_line.configure(text="대기 중"))
-
-        except Exception as e:
-            self.after(0, lambda: self._append_log(f"[오류] {e}"))
-            self.after(0, lambda: self.status_line.configure(text="오류 발생"))
 
     def _refresh_ui(self):
         on = self.controller.powered_on
@@ -487,12 +444,10 @@ class AkoGUI(tk.Tk):
             )
             self.msg_entry.configure(state="normal")
             self.send_btn.configure_state(True)
-
             if self._placeholder_active:
                 self.msg_entry.configure(fg=self.colors["muted"])
             else:
                 self.msg_entry.configure(fg=self.colors["entry_fg"])
-
             if self.status_line.cget("text") in ("전원 꺼짐", "대기 중"):
                 self.status_line.configure(text="대기 중")
 
