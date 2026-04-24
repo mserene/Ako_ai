@@ -1,3 +1,18 @@
+# command_actions.py
+# -----------------------------------------------------------------------------
+# 이 파일의 역할
+# - 사용자의 텍스트 명령을 "실제 OS 동작"으로 변환한다.
+#   예) "크롬 켜줘" → exe 실행 / "디스코드 앞으로" → 포커스 가져오기 / "구글에서 ~ 검색" → 브라우저 검색
+#
+# 어디와 연결되나
+# - local_assistant.py : llm_worker()가 handle_open_app / handle_search_command 를 호출한다.
+# - bot.py(디스코드)   : 디스코드 메시지에서 같은 핸들러를 호출할 수 있다.
+#
+# 어떤 데이터 파일을 쓰나
+# - app_commands.json  : 앱 별칭/프로세스명/실행 후보 경로/실행 인자/대체 URI
+# - search_sites.json  : 검색 엔진/사이트 정의(별칭, url/uri 템플릿)
+# -----------------------------------------------------------------------------
+
 from __future__ import annotations
 
 import csv
@@ -16,7 +31,11 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-
+# -------------------------------------------------------------------------
+# 배포/패키징(Python 실행 vs PyInstaller)에서 데이터 파일 경로 처리
+# - app_commands.json, search_sites.json 같은 파일은 exe 옆에 둔다.
+# - 현재 작업 디렉터리가 달라도 항상 올바르게 로드되도록 base dir로 보정한다.
+# -------------------------------------------------------------------------
 def _data_path(rel: str) -> str:
     rel = (rel or "").strip()
     if not rel:
@@ -24,12 +43,18 @@ def _data_path(rel: str) -> str:
     if os.path.isabs(rel):
         return rel
     try:
+        # PyInstaller로 빌드된 경우(sys.frozen==True) exe가 있는 폴더를 기준으로 함
         base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
     except Exception:
         base_dir = os.getcwd()
     return os.path.join(base_dir, rel)
 
 
+
+
+# -----------------------------------------------------------------------------
+# 공통 유틸
+# -----------------------------------------------------------------------------
 def _expand_env(path: str) -> str:
     return os.path.expandvars(path or "")
 
@@ -39,6 +64,18 @@ def _glob_paths(pattern: str) -> List[str]:
     if "*" in pat or "?" in pat:
         return [p for p in glob.glob(pat) if os.path.isfile(p)]
     return [pat] if os.path.isfile(pat) else []
+
+
+def _file_exists(path_or_pattern: str) -> bool:
+    try:
+        if not path_or_pattern:
+            return False
+        pat = _expand_env(path_or_pattern)
+        if "*" in pat or "?" in pat:
+            return any(os.path.isfile(p) for p in glob.glob(pat))
+        return os.path.isfile(pat)
+    except Exception:
+        return False
 
 
 def _run_hidden(cmd: List[str]) -> subprocess.CompletedProcess:
@@ -69,6 +106,7 @@ def _which(exe_name: str) -> Optional[str]:
 def _launch_exe(exe_path_or_name: str, args: Optional[List[str]] = None) -> bool:
     args = args or []
     target = exe_path_or_name
+
     expanded = _expand_env(target)
     if os.path.isfile(expanded):
         target = expanded
@@ -76,11 +114,11 @@ def _launch_exe(exe_path_or_name: str, args: Optional[List[str]] = None) -> bool
         found = _which(target)
         if found:
             target = found
+
     try:
         subprocess.Popen([target] + list(args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
-        logging.exception("실행 실패: %s", exe_path_or_name)
         return False
 
 
@@ -92,10 +130,12 @@ def _start_uri(uri_or_url: str) -> bool:
         _run_hidden(["cmd", "/c", "start", "", u])
         return True
     except Exception:
-        logging.exception("URI 시작 실패: %s", uri_or_url)
         return False
 
 
+# -----------------------------------------------------------------------------
+# 프로세스 조회/포커스(Windows 전용)
+# -----------------------------------------------------------------------------
 def _is_process_running_exact(image_name: str) -> bool:
     name = (image_name or "").strip()
     if not name:
@@ -213,13 +253,18 @@ def _bring_to_front_process(process_name: str, title_hints: Optional[List[str]] 
     pids = _get_pids_exact(process_name)
     if not pids:
         return False
+
     hints = [h.lower() for h in (title_hints or []) if h]
     for pid in pids:
         hwnds = _enum_hwnds_for_pid(pid)
+
+        # 창 핸들을 못 찾으면 AppActivate로 시도
         if not hwnds:
             if _app_activate_by_pid(pid):
                 return True
             continue
+
+        # 힌트(제목/별칭)가 포함된 창을 우선으로 점수화
         scored = []
         for hwnd in hwnds:
             title = _hwnd_title(hwnd).strip()
@@ -229,10 +274,15 @@ def _bring_to_front_process(process_name: str, title_hints: Optional[List[str]] 
                 score += 10
             score += min(len(title), 100) / 100.0
             scored.append((score, hwnd))
+
         scored.sort(reverse=True, key=lambda x: x[0])
         best = scored[0][1]
-        if _force_foreground(best) or _app_activate_by_pid(pid):
+
+        if _force_foreground(best):
             return True
+        if _app_activate_by_pid(pid):
+            return True
+
     return False
 
 
@@ -249,14 +299,17 @@ def _app_activate_by_title(title: str) -> bool:
     return cp.returncode == 0
 
 
+# -----------------------------------------------------------------------------
+# 앱 사전(app_commands.json)
+# -----------------------------------------------------------------------------
 @dataclass
 class AppSpec:
     key: str
     aliases: List[str]
     process_name: str
     window_title: str = ""
-    candidates: List[str] | None = None
-    args: List[str] | None = None
+    candidates: List[str] = None
+    args: List[str] = None
     fallback_uri: Optional[str] = None
 
     def __post_init__(self):
@@ -270,16 +323,15 @@ class AppSpec:
 
 _APP_CACHE: Optional[Dict[str, AppSpec]] = None
 _APP_CACHE_MTIME: float = 0.0
-_SEARCH_CACHE: Optional[Tuple[str, Dict[str, "SearchSite"]]] = None
-_SEARCH_CACHE_MTIME: float = 0.0
 
 
 def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
+    # 앱 사전은 여러 곳에서 공유되니 수정 시간이 같을 때만 캐시를 재사용한다.
     global _APP_CACHE, _APP_CACHE_MTIME
     full = _data_path(path)
     try:
         mtime = os.path.getmtime(full)
-    except OSError:
+    except Exception:
         mtime = 0.0
     if _APP_CACHE is not None and mtime == _APP_CACHE_MTIME:
         return _APP_CACHE
@@ -289,7 +341,7 @@ def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
             raw = json.load(f)
         apps = raw.get("apps", raw)
     except Exception:
-        logging.exception("app_commands.json 로드 실패")
+        logging.exception("load_app_specs failed")
         apps = {}
 
     out: Dict[str, AppSpec] = {}
@@ -305,25 +357,30 @@ def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
             args=list(v.get("args", [])),
             fallback_uri=v.get("fallback_uri"),
         )
+
     _APP_CACHE = out
     _APP_CACHE_MTIME = mtime
     return out
 
 
 def _resolve_candidate_list(spec: AppSpec) -> List[Tuple[str, List[str]]]:
+    # app_commands.json의 candidates + 일부 앱(디스코드/카톡/스포티파이) 추가 후보를 합친다.
     out: List[Tuple[str, List[str]]] = []
+
     for cand in (spec.candidates or []):
         for p in _glob_paths(cand):
             out.append((p, list(spec.args or [])))
+
     if spec.process_name.lower() == "discord.exe":
         extra = [
-            r"%LOCALAPPDATA%\Discordpp-*\Discord.exe",
-            r"%LOCALAPPDATA%\DiscordCanarypp-*\Discord.exe",
-            r"%LOCALAPPDATA%\DiscordPTBpp-*\Discord.exe",
+            r"%LOCALAPPDATA%\Discord\app-*\Discord.exe",
+            r"%LOCALAPPDATA%\DiscordCanary\app-*\Discord.exe",
+            r"%LOCALAPPDATA%\DiscordPTB\app-*\Discord.exe",
         ]
         for pat in extra:
             for p in _glob_paths(pat):
                 out.append((p, []))
+
     if spec.process_name.lower() == "kakaotalk.exe":
         extra = [
             r"%LOCALAPPDATA%\Kakao\KakaoTalk\KakaoTalk.exe",
@@ -332,6 +389,7 @@ def _resolve_candidate_list(spec: AppSpec) -> List[Tuple[str, List[str]]]:
         for pat in extra:
             for p in _glob_paths(pat):
                 out.append((p, []))
+
     if spec.process_name.lower() == "spotify.exe":
         extra = [
             r"%APPDATA%\Spotify\Spotify.exe",
@@ -340,6 +398,8 @@ def _resolve_candidate_list(spec: AppSpec) -> List[Tuple[str, List[str]]]:
         for pat in extra:
             for p in _glob_paths(pat):
                 out.append((p, []))
+
+    # 경로 중복 제거
     seen = set()
     uniq: List[Tuple[str, List[str]]] = []
     for p, a in out:
@@ -362,6 +422,9 @@ def match_app(text: str, specs: Dict[str, AppSpec]) -> Optional[AppSpec]:
     return None
 
 
+# -----------------------------------------------------------------------------
+# 명령 판별(앱 열기/포커스)
+# -----------------------------------------------------------------------------
 def is_open_intent(text: str) -> bool:
     return bool(re.search(r"(열어|켜|실행|띄워)\s*(줘|줘요|라|줘라)?", text or ""))
 
@@ -374,28 +437,39 @@ def is_open_or_focus_intent(text: str) -> bool:
     return is_open_intent(text) or is_focus_intent(text)
 
 
+# -----------------------------------------------------------------------------
+# 1) 앱 실행/포커스 처리
+# -----------------------------------------------------------------------------
 def handle_open_app(user_text: str, app_specs: Optional[Dict[str, AppSpec]] = None) -> Optional[str]:
     txt = (user_text or "").strip()
     if not txt or not is_open_or_focus_intent(txt):
         return None
+
     specs = app_specs or load_app_specs()
     spec = match_app(txt, specs)
     if not spec:
         return None
+
     app_name = spec.aliases[0] if spec.aliases else spec.key
+
+    # 1) 이미 켜져 있으면 "앞으로 띄우기" 시도
     if _is_process_running_exact(spec.process_name):
         hints: List[str] = []
         if spec.window_title:
             hints.append(spec.window_title)
         hints.extend([a for a in (spec.aliases or []) if a])
+
         ok = _bring_to_front_process(spec.process_name, hints)
         if not ok:
             for h in hints:
                 if _app_activate_by_title(h):
                     ok = True
                     break
+
         if ok:
             return f"{app_name} 켜져 있어요. 앞으로 띄웠어요."
+
+        # focus 의도가 강하면 재실행 후 포커스 재시도
         if is_focus_intent(txt):
             try:
                 for exe_path, args in _resolve_candidate_list(spec):
@@ -411,18 +485,30 @@ def handle_open_app(user_text: str, app_specs: Optional[Dict[str, AppSpec]] = No
                 if ok2:
                     return f"{app_name} 켜져 있어요. 앞으로 띄웠어요."
             except Exception:
-                logging.exception("앱 포커스 재시도 실패")
+                pass
+
         return f"{app_name} 켜져 있어요. 근데 창을 앞으로 가져오지는 못했어요."
+
+    # 2) 꺼져 있으면 candidates 우선 실행
     for exe_path, args in _resolve_candidate_list(spec):
         if _launch_exe(exe_path, args):
             return f"{app_name} 켰어요."
-    if spec.fallback_uri and _start_uri(spec.fallback_uri):
-        return f"{app_name} 켰어요."
+
+    # 3) 대체 URI
+    if spec.fallback_uri:
+        if _start_uri(spec.fallback_uri):
+            return f"{app_name} 켰어요."
+
+    # 4) 마지막으로 process_name 자체를 exe로 가정하고 실행
     if spec.process_name and _launch_exe(spec.process_name, spec.args):
         return f"{app_name} 켰어요."
+
     return f"{app_name} 실행을 못 했어요. 설치 경로나 후보 경로를 app_commands.json에 추가해줘요."
 
 
+# -----------------------------------------------------------------------------
+# 검색 사전(search_sites.json)
+# -----------------------------------------------------------------------------
 @dataclass
 class SearchSite:
     key: str
@@ -437,12 +523,16 @@ class SearchSite:
             self.aliases = []
 
 
+_SEARCH_CACHE: Optional[Tuple[str, Dict[str, SearchSite]]] = None
+_SEARCH_CACHE_MTIME: float = 0.0
+
+
 def load_search_sites(path: str = "search_sites.json") -> Tuple[str, Dict[str, SearchSite]]:
     global _SEARCH_CACHE, _SEARCH_CACHE_MTIME
     full = _data_path(path)
     try:
         mtime = os.path.getmtime(full)
-    except OSError:
+    except Exception:
         mtime = 0.0
     if _SEARCH_CACHE is not None and mtime == _SEARCH_CACHE_MTIME:
         return _SEARCH_CACHE
@@ -466,7 +556,8 @@ def load_search_sites(path: str = "search_sites.json") -> Tuple[str, Dict[str, S
                 browser_app=str(v.get("browser_app", "")),
             )
     except Exception:
-        logging.exception("search_sites.json 로드 실패")
+        logging.exception("load_search_sites failed")
+
     _SEARCH_CACHE = (default_key, sites)
     _SEARCH_CACHE_MTIME = mtime
     return _SEARCH_CACHE
@@ -492,11 +583,20 @@ _SEARCH_PATTERNS = [
 ]
 
 
-def handle_search_command(user_text: str, app_specs: Optional[Dict[str, AppSpec]] = None, sites_path: str = "search_sites.json") -> Optional[str]:
+# -----------------------------------------------------------------------------
+# 2) 검색 처리
+# -----------------------------------------------------------------------------
+def handle_search_command(
+    user_text: str,
+    app_specs: Optional[Dict[str, AppSpec]] = None,
+    sites_path: str = "search_sites.json",
+) -> Optional[str]:
     txt = (user_text or "").strip()
     if not txt:
         return None
+
     default_key, sites = load_search_sites(sites_path)
+
     m = None
     for pat in _SEARCH_PATTERNS:
         m = pat.match(txt)
@@ -504,79 +604,98 @@ def handle_search_command(user_text: str, app_specs: Optional[Dict[str, AppSpec]
             break
     if not m:
         return None
+
     q = (m.groupdict().get("q") or "").strip()
     if not q:
         return None
+
     site_text = (m.groupdict().get("site") or "").strip()
     site = _match_site(site_text, sites) if site_text else sites.get(default_key)
     if not site:
         site = sites.get(default_key)
+
     q_url = urllib.parse.quote(q, safe="")
     q_uri = urllib.parse.quote(q, safe="")
+
+    # uri 타입(앱 내부 검색 등)
     if site.type == "uri" and site.uri:
         uri = site.uri.replace("{q}", q_uri)
         _start_uri(uri)
         name = site.aliases[0] if site.aliases else site.key
         return f"{name}에서 검색했어요."
+
+    # 웹 검색
     url = (site.url or "").replace("{q}", q_url)
     if not url:
         url = f"https://www.google.com/search?q={q_url}"
+
     _start_uri(url)
     name = site.aliases[0] if site.aliases else site.key
     return f"{name}에서 검색했어요."
 
-
+# -----------------------------------------------------------------------------
+# app.py에서 분리: UI 명령 파서 (app.py는 진입점만 담당하도록)
+# -----------------------------------------------------------------------------
 _DIR_PAT = r"(왼쪽\s*위|오른쪽\s*위|왼쪽\s*아래|오른쪽\s*아래|왼쪽|오른쪽|위|아래|좌상|우상|좌하|우하)"
 
 
 def handle_youtube_toggle(text: str) -> Optional[str]:
+    """'유튜브 재생 눌러줘', '유튜브 일시정지 눌러줘' 등을 처리."""
     s = (text or "").strip()
     if not s or "유튜브" not in s:
         return None
+
     dm = re.search(_DIR_PAT, s)
     direction = dm.group(0) if dm else None
-    has_toggle_word = bool(re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s))
-    has_action_word = bool(re.search(r"(눌러\s*줘|눌러줘|해\s*줘|해줘|해\s*줄래|해줄래|해)", s))
-    if has_toggle_word and (has_action_word or True):
+
+    if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s):
         try:
             from ui_tap import youtube_toggle_click_only
             youtube_toggle_click_only(direction=direction)
             return "유튜브 토글 완료"
         except Exception as e:
-            logging.exception("유튜브 토글 실패")
             return f"유튜브 토글 실패: {e}"
     return None
 
 
 def handle_ui_click(text: str) -> Optional[str]:
+    """'닫기 눌러줘', '오른쪽 위에 있는 닫기 눌러줘' 등 UI 클릭 명령 처리."""
     s = (text or "").strip()
     if not s:
         return None
+
     m = re.search(
         rf"(?:(?P<dir>{_DIR_PAT})\s*(?:에\s*있는|쪽|쪽에\s*있는)?\s*)?(?P<label>.+?)\s*(?:버튼)?\s*(?:눌러\s*줘|눌러줘|클릭\s*해\s*줘|클릭해줘)$",
         s,
     )
     if not m:
         return None
+
     direction = m.group("dir")
     label = m.group("label").strip().strip('"').strip("'")
     if not label:
         return None
+
     try:
         from ui_do import do_click_text
         ok = do_click_text(target_text=label, direction=direction or None, monitor_index=1)
         return f"'{label}' 클릭 완료" if ok else f"'{label}'를 화면에서 찾지 못했어요."
     except Exception as e:
-        logging.exception("UI 클릭 오류")
         return f"UI 클릭 오류: {e}"
 
 
 def run_text(user_text: str) -> str:
+    """
+    [Deprecated] app.py의 run_actions() 또는 llm_agent.py의 run_agent()를 사용하세요.
+    하위 호환을 위해 남겨두지만 LLM 에이전트로 위임합니다.
+    """
     try:
         from llm_agent import run_agent
         return run_agent(user_text)
     except Exception:
-        logging.exception("LLM agent 위임 실패")
+        pass
+
+    # fallback
     txt = (user_text or "").strip()
     if not txt:
         return "명령이 비어 있어요."
@@ -585,11 +704,11 @@ def run_text(user_text: str) -> str:
         if msg:
             return msg
     except Exception:
-        logging.exception("앱 실행 fallback 실패")
+        pass
     try:
         msg = handle_search_command(txt)
         if msg:
             return msg
     except Exception:
-        logging.exception("검색 fallback 실패")
+        pass
     return "아직 그 명령은 못 해요."

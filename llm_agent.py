@@ -1,3 +1,4 @@
+# llm_agent.py
 from __future__ import annotations
 
 import json
@@ -5,28 +6,33 @@ import logging
 import os
 import re
 from collections import deque
-from typing import Deque, Optional
+from typing import Optional
 
 
-def _ollama_chat(messages: list[dict], model: str = "exaone3.5:7.8b", timeout: int = 30) -> str:
+def _ollama_chat(messages: list[dict], model: Optional[str] = None, timeout: int = 30) -> str:
+    model = model or os.getenv("AKO_AGENT_MODEL", "exaone3.5:7.8b")
+    ollama_url = os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat")
+
     try:
         import ollama  # type: ignore
         resp = ollama.chat(model=model, messages=messages)
         return resp["message"]["content"].strip()
     except ImportError:
         pass
+    except Exception:
+        logging.exception("ollama python package chat failed")
 
     try:
         import requests  # type: ignore
-        base_url = os.getenv("AKO_OLLAMA_URL", "http://localhost:11434").rstrip("/")
         resp = requests.post(
-            f"{base_url}/api/chat",
+            ollama_url,
             json={"model": model, "messages": messages, "stream": False},
             timeout=timeout,
         )
         resp.raise_for_status()
         return resp.json()["message"]["content"].strip()
     except Exception as e:
+        logging.exception("Ollama HTTP chat failed")
         return f"[LLM 오류] Ollama 연결 실패: {e}\nOllama가 실행 중인지 확인해줘요. (ollama serve)"
 
 
@@ -42,7 +48,7 @@ _TOOLS_DESC = """
 5. chat: 위 툴에 해당하지 않는 일상 대화, 질문, 잡담
 
 [응답 형식]
-반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.
+반드시 아래 JSON 형식으로만 응답하세요.
 툴 사용 시:
 {"tool": "툴이름", "text": "원본 사용자 입력 그대로"}
 일상 대화 시:
@@ -52,7 +58,7 @@ _TOOLS_DESC = """
 
 class ConversationHistory:
     def __init__(self, max_turns: int = 10):
-        self._history: Deque[dict[str, str]] = deque(maxlen=max_turns * 2)
+        self._history = deque(maxlen=max_turns * 2)
 
     def add(self, role: str, content: str) -> None:
         content = (content or "").strip()
@@ -61,14 +67,14 @@ class ConversationHistory:
         self._history.append({"role": role, "content": content})
 
     def get_messages(self, system_prompt: str) -> list[dict]:
-        return [{"role": "system", "content": system_prompt}, *list(self._history)]
+        return [{"role": "system", "content": system_prompt}] + list(self._history)
 
     def clear(self) -> None:
         self._history.clear()
 
 
 class AkoAgent:
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: Optional[str] = None):
         self.model = model or os.getenv("AKO_AGENT_MODEL", "exaone3.5:7.8b")
         self.history = ConversationHistory(max_turns=10)
 
@@ -79,7 +85,7 @@ class AkoAgent:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                logging.warning("LLM JSON 파싱 실패: %s", cleaned)
+                logging.warning("JSON parse failed for LLM response: %s", cleaned)
         return {"tool": "chat", "reply": raw.strip()}
 
     def run(self, user_input: str) -> str:
@@ -106,7 +112,7 @@ class AkoAgent:
                 load_app_specs,
             )
         except ImportError as e:
-            logging.exception("명령 모듈 로드 실패")
+            logging.exception("command_actions import failed inside agent")
             return f"명령 모듈 로드 실패: {e}"
 
         text = parsed.get("text", original_text)
@@ -115,10 +121,15 @@ class AkoAgent:
             specs = load_app_specs()
             result = handle_open_app(text, specs)
             return result or "앱을 찾지 못했어요. app_commands.json에 등록된 앱인지 확인해줘요."
+
         if tool == "search":
-            return handle_search_command(text) or "검색어를 이해하지 못했어요."
+            result = handle_search_command(text)
+            return result or "검색어를 이해하지 못했어요."
+
         if tool == "ui_click":
-            return handle_ui_click(text) or "클릭할 대상을 화면에서 찾지 못했어요."
+            result = handle_ui_click(text)
+            return result or "클릭할 대상을 화면에서 찾지 못했어요."
+
         if tool == "youtube_toggle":
             result = handle_youtube_toggle(text)
             if result:
@@ -128,10 +139,12 @@ class AkoAgent:
                 youtube_toggle_click_only(direction=None)
                 return "유튜브 토글 완료"
             except Exception as e:
-                logging.exception("유튜브 토글 실패")
+                logging.exception("youtube_toggle fallback failed")
                 return f"유튜브 토글 실패: {e}"
+
         if tool == "chat":
             return parsed.get("reply", "...")
+
         return f"알 수 없는 툴: {tool}"
 
     def clear_history(self) -> None:
@@ -141,13 +154,12 @@ class AkoAgent:
 _agent_instance: Optional[AkoAgent] = None
 
 
-def get_agent(model: str | None = None) -> AkoAgent:
+def get_agent(model: Optional[str] = None) -> AkoAgent:
     global _agent_instance
-    wanted_model = model or os.getenv("AKO_AGENT_MODEL", "exaone3.5:7.8b")
-    if _agent_instance is None or _agent_instance.model != wanted_model:
-        _agent_instance = AkoAgent(model=wanted_model)
+    if _agent_instance is None:
+        _agent_instance = AkoAgent(model=model)
     return _agent_instance
 
 
-def run_agent(user_input: str, model: str | None = None) -> str:
+def run_agent(user_input: str, model: Optional[str] = None) -> str:
     return get_agent(model).run(user_input)

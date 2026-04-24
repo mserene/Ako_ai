@@ -1,4 +1,5 @@
 # app.py
+# 통합 엔트리: ako_ai
 from __future__ import annotations
 
 import argparse
@@ -8,6 +9,7 @@ import sys
 
 
 def _set_workdir_to_appdir() -> str:
+    """배포(PyInstaller one-folder)에서 상대경로가 항상 exe 폴더 기준이 되도록 고정"""
     try:
         app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
     except Exception:
@@ -19,17 +21,14 @@ def _set_workdir_to_appdir() -> str:
 
 _APP_DIR = _set_workdir_to_appdir()
 
-
-def _configure_logging() -> None:
-    log_path = os.path.join(_APP_DIR, "ako.log")
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("ako.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
 
 
 def run_actions(text: str) -> str:
@@ -52,7 +51,7 @@ def run_actions(text: str) -> str:
             load_app_specs,
         )
     except ImportError as e:
-        logging.exception("명령 모듈 로드 실패")
+        logging.exception("command_actions import failed")
         return f"명령 모듈 로드 실패: {e}"
 
     try:
@@ -60,7 +59,7 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
-        logging.warning("유튜브 토글 오류: %s", e, exc_info=True)
+        logging.exception("youtube toggle failed")
         return f"유튜브 토글 오류: {e}"
 
     try:
@@ -68,7 +67,7 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
-        logging.warning("UI 클릭 오류: %s", e, exc_info=True)
+        logging.exception("ui click failed")
         return f"UI 클릭 오류: {e}"
 
     try:
@@ -77,7 +76,7 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
-        logging.warning("앱 실행 오류: %s", e, exc_info=True)
+        logging.exception("open app failed")
         return f"앱 실행 오류: {e}"
 
     try:
@@ -85,7 +84,7 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
-        logging.warning("검색 오류: %s", e, exc_info=True)
+        logging.exception("search failed")
         return f"검색 오류: {e}"
 
     return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
@@ -97,7 +96,7 @@ def run_ui() -> str:
         ui_mvp_loop()
         return "UI 루프 종료"
     except Exception as e:
-        logging.exception("UI 루프 오류")
+        logging.exception("UI loop failed")
         return f"UI 루프 오류: {e}"
 
 
@@ -110,7 +109,7 @@ def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: 
                 return "[DO] ok"
             return f"[DO] 알 수 없는 tap 액션: {tap}"
         except Exception as e:
-            logging.exception("DO tap 오류")
+            logging.exception("tap action failed")
             return f"[DO] tap 오류: {e}"
 
     try:
@@ -118,27 +117,26 @@ def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: 
         ok = do_click_text(target_text=press, direction=(direction or None), monitor_index=1, timeout_sec=timeout_sec)
         return "[DO] ok" if ok else f"[DO] '{press}'를 화면에서 찾지 못했어요."
     except Exception as e:
-        logging.exception("DO 오류")
+        logging.exception("do_click_text failed")
         return f"[DO] 오류: {e}"
 
 
 def main():
-    _configure_logging()
-
     p = argparse.ArgumentParser(prog="ako_ai")
     p.add_argument("--mode", choices=["gui", "actions", "ui", "do", "voice"], default="gui")
     p.add_argument("--text", default="", help="actions 모드에서 사용할 텍스트 명령")
-    p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트")
-    p.add_argument("--tap", default="", help="do 모드: 탭/토글 액션")
-    p.add_argument("--dir", default="", help="do 모드: 방향")
+    p.add_argument("--press", default="", help="do 모드: 클릭할 텍스트 (예: 닫기/취소/확인)")
+    p.add_argument("--tap", default="", help="do 모드: 탭/토글 액션 (예: youtube_toggle)")
+    p.add_argument("--dir", default="", help="do 모드: 방향(예: 왼쪽/오른쪽/위/아래)")
     p.add_argument("--timeout", type=float, default=8.0, help="do 모드: 찾기 제한 시간(초)")
-    p.add_argument("--wake", default="", help="voice 모드: 웨이크워드")
-    p.add_argument("--device", type=int, default=-1, help="voice 모드: 입력 장치 인덱스")
+    p.add_argument("--wake", default="", help="voice 모드: 웨이크워드(예: 아코). 비우면 항상 실행")
+    p.add_argument("--device", type=int, default=-1, help="voice 모드: 입력 장치 인덱스. -1이면 기본")
     p.add_argument("--sr", type=int, default=16000, help="voice 모드: 샘플레이트")
-    p.add_argument("--model", default="small", help="voice 모드: faster-whisper 모델명")
-    p.add_argument("--lang", default="ko", help="voice 모드: 인식 언어")
+    p.add_argument("--model", default="small", help="voice 모드: faster-whisper 모델명 (tiny/base/small/medium/large-v3)")
+    p.add_argument("--lang", default="ko", help="voice 모드: 인식 언어(ko/en 등)")
     p.add_argument("--silence", type=float, default=0.9, help="voice 모드: 무음 지속시간(초)")
     p.add_argument("--thresh", type=float, default=0.012, help="voice 모드: 무음 판정 RMS 임계값")
+
     args = p.parse_args()
 
     if args.mode == "gui":
@@ -146,7 +144,7 @@ def main():
             from ako_gui import main as gui_main
             gui_main()
         except Exception as e:
-            logging.exception("GUI 실행 오류")
+            logging.exception("GUI launch failed")
             print(f"[GUI] 실행 오류: {e}")
         return
 
@@ -157,22 +155,19 @@ def main():
             print('예: python app.py --mode=actions --text "유튜브 재생 눌러줘"')
             return
         print(run_actions(args.text))
-        return
 
-    if args.mode == "do":
+    elif args.mode == "do":
         if not args.press.strip() and not args.tap.strip():
             print('예: python app.py --mode=do --press "닫기"')
             print('예: python app.py --mode=do --press "닫기" --dir "왼쪽"')
             print('예: python app.py --mode=do --tap "youtube_toggle"')
             return
         print(run_do(args.press, direction=args.dir, timeout_sec=args.timeout, tap=args.tap))
-        return
 
-    if args.mode == "ui":
+    elif args.mode == "ui":
         print(run_ui())
-        return
 
-    if args.mode == "voice":
+    elif args.mode == "voice":
         try:
             from voice_loop import VoiceConfig, voice_actions_loop
             cfg = VoiceConfig(
@@ -186,7 +181,7 @@ def main():
             )
             voice_actions_loop(cfg)
         except Exception as e:
-            logging.exception("VOICE 실행 오류")
+            logging.exception("VOICE launch failed")
             print(f"[VOICE] 실행 오류: {e}")
 
 
