@@ -8,6 +8,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
+import json
 
 from voice_loop import (
     BootstrapStatus,
@@ -83,12 +84,105 @@ class AkoController:
                 logging.exception("GUI log callback failed")
 
     # ---------------- power ----------------
+    # power_on() 수정 — 웜업 추가
     def power_on(self) -> None:
         if self.powered_on:
             return
         self.powered_on = True
-        self.command_on = True  # 기본은 켜둠
+        self.command_on = True
         self.log("전원 ON")
+        # 모델을 미리 로드해서 첫 대화 딜레이 제거
+        threading.Thread(target=self._warmup_model, daemon=True, name="AkoWarmup").start()
+
+    def _warmup_model(self) -> None:
+        """Ollama 모델을 메모리에 미리 올려두기 위한 더미 요청."""
+        model = os.getenv("AKO_OLLAMA_MODEL", "qwen3:4b")
+        ollama_url = os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat")
+        try:
+            requests.post(
+                ollama_url,
+                json={
+                    "model": model,
+                    "stream": False,
+                    "messages": [{"role": "user", "content": "안녕"}],
+                    "keep_alive": "30m",
+                    "options": {"num_predict": 1},   # 토큰 1개만 생성 → 로딩만 하고 빠르게 종료
+                },
+                timeout=60,
+            )
+            self.log("(모델 워밍업 완료)")
+        except Exception:
+            pass  # 실패해도 무관, 그냥 첫 호출이 살짝 느린 것뿐
+
+    def chat_stream(self, text: str):
+        """
+        스트리밍 버전 chat. 토큰 청크를 yield한다.
+        GUI 스레드에서 직접 호출하지 말고 별도 스레드에서 호출할 것.
+        """
+        text = (text or "").strip()
+        if not text:
+            return
+
+        if not self.powered_on:
+            yield "전원이 꺼져 있어서 대화할 수 없어요."
+            return
+
+        model = os.getenv("AKO_OLLAMA_MODEL", "qwen3:4b")
+        ollama_url = os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat")
+
+        # qwen3 계열은 /nothink 접두어로 thinking 모드를 끄면 응답이 크게 빨라짐
+        # 다른 모델 쓰면 그냥 무시됨
+        system_prompt = (
+            "/nothink\n"
+            "너는 Ako라는 로컬 비서야. "
+            "답변은 한국어로 자연스럽고 짧고 친절하게 해. "
+            "쓸데없이 길게 말하지 말고, 사용자와 편하게 대화해."
+        )
+
+        self._chat_history.add("user", text)
+
+        collected: list[str] = []
+        try:
+            resp = requests.post(
+                ollama_url,
+                json={
+                    "model": model,
+                    "stream": True,                       # ← 핵심: 스트리밍 ON
+                    "messages": self._chat_history.get_messages(system_prompt),
+                    "keep_alive": "30m",                  # 모델 30분간 메모리 유지
+                },
+                timeout=120,
+                stream=True,                              # requests도 스트림 모드
+            )
+            resp.raise_for_status()
+
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                try:
+                    data = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+
+                chunk = (data.get("message") or {}).get("content") or ""
+                if chunk:
+                    collected.append(chunk)
+                    yield chunk
+
+                if data.get("done"):
+                    break
+
+            full = "".join(collected).strip()
+            if full:
+                self._chat_history.add("assistant", full)
+
+        except requests.exceptions.ConnectionError:
+            yield "\nOllama 서버에 연결하지 못했어요. Ollama가 실행 중인지 확인해 주세요."
+        except requests.exceptions.Timeout:
+            yield "\n응답 시간이 너무 오래 걸렸어요. 다시 시도해 주세요."
+        except Exception as e:
+            logging.exception("Ollama stream chat failed")
+            yield f"\nOllama 대화 오류: {e}"
 
     def power_off(self) -> None:
         if not self.powered_on:
