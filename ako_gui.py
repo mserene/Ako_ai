@@ -382,104 +382,104 @@ class AkoGUI(tk.Tk):
         self.msg_entry.focus_set()
 
     def _handle_message(self, text: str):
-    """명령어는 즉시 처리, 일반 대화는 논블로킹 스트리밍으로 처리."""
-    try:
-        handled = False
-        if hasattr(self.controller, "is_command_text"):
-            try:
-                handled = bool(self.controller.is_command_text(text))
-            except Exception:
-                handled = False
+        """명령어는 즉시 처리, 일반 대화는 논블로킹 스트리밍으로 처리."""
+        try:
+            handled = False
+            if hasattr(self.controller, "is_command_text"):
+                try:
+                    handled = bool(self.controller.is_command_text(text))
+                except Exception:
+                    handled = False
+            else:
+                command_hints = [
+                    "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭", "검색",
+                    "닫아", "삭제", "입력", "가줘", "가자", "해줘",
+                ]
+                handled = any(k in text for k in command_hints)
+
+            if handled:
+                # 명령어: 기존 방식 유지 (이미 빠름)
+                self.controller.handle_text_command(text)
+                self.status_line.configure(text="명령 실행 완료")
+                return
+
+            # 일반 대화: 비동기 스트리밍
+            self._start_chat_async(text)
+
+        except Exception as e:
+            self._append_log(f"[오류] {e}")
+            self.status_line.configure(text="오류 발생")
+            self._set_input_enabled(True)
+
+    # ── 스트리밍 대화 관련 메서드 ──────────────────────────────────────────
+
+    def _set_input_enabled(self, enabled: bool):
+        """입력창·전송 버튼 활성/비활성 토글."""
+        if enabled and self.controller.powered_on:
+            self.msg_entry.configure(state="normal")
+            self.send_btn.configure_state(True)
+            if self._placeholder_active:
+                self.msg_entry.configure(fg=self.colors["muted"])
+            else:
+                self.msg_entry.configure(fg=self.colors["entry_fg"])
         else:
-            command_hints = [
-                "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭", "검색",
-                "닫아", "삭제", "입력", "가줘", "가자", "해줘",
-            ]
-            handled = any(k in text for k in command_hints)
+            self.msg_entry.configure(state="disabled")
+            self.send_btn.configure_state(False)
 
-        if handled:
-            # 명령어: 기존 방식 유지 (이미 빠름)
-            self.controller.handle_text_command(text)
-            self.status_line.configure(text="명령 실행 완료")
-            return
+    def _start_chat_async(self, text: str):
+        """별도 스레드에서 스트리밍 chat을 시작하고 GUI는 즉시 반환."""
+        self.status_line.configure(text="[아코] 생각 중...")
+        self._set_input_enabled(False)
 
-        # 일반 대화: 비동기 스트리밍
-        self._start_chat_async(text)
+        # 로그창에 "[아코] " 접두어 미리 삽입해두고 토큰을 이어 붙일 준비
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", "[아코] ")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
 
-    except Exception as e:
-        self._append_log(f"[오류] {e}")
+        threading.Thread(
+            target=self._chat_stream_worker,
+            args=(text,),
+            daemon=True,
+            name="AkoChatStream",
+        ).start()
+
+    def _chat_stream_worker(self, text: str):
+        """백그라운드 스레드: 토큰을 받을 때마다 GUI 업데이트 예약."""
+        try:
+            for chunk in self.controller.chat_stream(text):
+                # after(0, ...) → tkinter 메인 루프에 안전하게 콜백 전달
+                self.after(0, self._on_stream_chunk, chunk)
+        except Exception as e:
+            self.after(0, self._on_stream_error, str(e))
+        finally:
+            self.after(0, self._on_stream_done)
+
+    def _on_stream_chunk(self, chunk: str):
+        """메인 스레드: 토큰 청크를 로그창에 실시간 추가."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", chunk)
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+
+    def _on_stream_done(self):
+        """메인 스레드: 스트리밍 완료 후 정리."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", "\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+        self.status_line.configure(text="대기 중")
+        self._set_input_enabled(True)
+        self.msg_entry.focus_set()
+
+    def _on_stream_error(self, error: str):
+        """메인 스레드: 스트림 중 에러 처리."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"\n[오류] {error}\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
         self.status_line.configure(text="오류 발생")
         self._set_input_enabled(True)
-
-# ── 스트리밍 대화 관련 메서드 ──────────────────────────────────────────
-
-def _set_input_enabled(self, enabled: bool):
-    """입력창·전송 버튼 활성/비활성 토글."""
-    if enabled and self.controller.powered_on:
-        self.msg_entry.configure(state="normal")
-        self.send_btn.configure_state(True)
-        if self._placeholder_active:
-            self.msg_entry.configure(fg=self.colors["muted"])
-        else:
-            self.msg_entry.configure(fg=self.colors["entry_fg"])
-    else:
-        self.msg_entry.configure(state="disabled")
-        self.send_btn.configure_state(False)
-
-def _start_chat_async(self, text: str):
-    """별도 스레드에서 스트리밍 chat을 시작하고 GUI는 즉시 반환."""
-    self.status_line.configure(text="[아코] 생각 중...")
-    self._set_input_enabled(False)
-
-    # 로그창에 "[아코] " 접두어 미리 삽입해두고 토큰을 이어 붙일 준비
-    self.log_text.configure(state="normal")
-    self.log_text.insert("end", "[아코] ")
-    self.log_text.configure(state="disabled")
-    self.log_text.see("end")
-
-    threading.Thread(
-        target=self._chat_stream_worker,
-        args=(text,),
-        daemon=True,
-        name="AkoChatStream",
-    ).start()
-
-def _chat_stream_worker(self, text: str):
-    """백그라운드 스레드: 토큰을 받을 때마다 GUI 업데이트 예약."""
-    try:
-        for chunk in self.controller.chat_stream(text):
-            # after(0, ...) → tkinter 메인 루프에 안전하게 콜백 전달
-            self.after(0, self._on_stream_chunk, chunk)
-    except Exception as e:
-        self.after(0, self._on_stream_error, str(e))
-    finally:
-        self.after(0, self._on_stream_done)
-
-def _on_stream_chunk(self, chunk: str):
-    """메인 스레드: 토큰 청크를 로그창에 실시간 추가."""
-    self.log_text.configure(state="normal")
-    self.log_text.insert("end", chunk)
-    self.log_text.configure(state="disabled")
-    self.log_text.see("end")
-
-def _on_stream_done(self):
-    """메인 스레드: 스트리밍 완료 후 정리."""
-    self.log_text.configure(state="normal")
-    self.log_text.insert("end", "\n")
-    self.log_text.configure(state="disabled")
-    self.log_text.see("end")
-    self.status_line.configure(text="대기 중")
-    self._set_input_enabled(True)
-    self.msg_entry.focus_set()
-
-def _on_stream_error(self, error: str):
-    """메인 스레드: 스트림 중 에러 처리."""
-    self.log_text.configure(state="normal")
-    self.log_text.insert("end", f"\n[오류] {error}\n")
-    self.log_text.configure(state="disabled")
-    self.log_text.see("end")
-    self.status_line.configure(text="오류 발생")
-    self._set_input_enabled(True)
 
     def _refresh_ui(self):
         on = self.controller.powered_on
