@@ -37,12 +37,6 @@ def run_actions(text: str) -> str:
         return "명령이 비어 있어요."
 
     try:
-        from llm_agent import run_agent
-        return run_agent(txt)
-    except Exception as e:
-        logging.warning("[LLM fallback] %s", e, exc_info=True)
-
-    try:
         from command_actions import (
             handle_youtube_toggle,
             handle_ui_click,
@@ -54,6 +48,7 @@ def run_actions(text: str) -> str:
         logging.exception("command_actions import failed")
         return f"명령 모듈 로드 실패: {e}"
 
+    # 0) 유튜브 토글
     try:
         r = handle_youtube_toggle(txt)
         if r:
@@ -62,6 +57,7 @@ def run_actions(text: str) -> str:
         logging.exception("youtube toggle failed")
         return f"유튜브 토글 오류: {e}"
 
+    # 1) UI 클릭
     try:
         r = handle_ui_click(txt)
         if r:
@@ -70,6 +66,7 @@ def run_actions(text: str) -> str:
         logging.exception("ui click failed")
         return f"UI 클릭 오류: {e}"
 
+    # 2) 앱 실행/포커스
     try:
         specs = load_app_specs()
         r = handle_open_app(txt, specs)
@@ -79,6 +76,7 @@ def run_actions(text: str) -> str:
         logging.exception("open app failed")
         return f"앱 실행 오류: {e}"
 
+    # 3) 검색
     try:
         r = handle_search_command(txt)
         if r:
@@ -87,8 +85,14 @@ def run_actions(text: str) -> str:
         logging.exception("search failed")
         return f"검색 오류: {e}"
 
-    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
+    # 4) 그래도 못 잡으면 LLM 에이전트
+    try:
+        from llm_agent import run_agent
+        return run_agent(txt)
+    except Exception as e:
+        logging.warning("[LLM fallback failed] %s", e, exc_info=True)
 
+    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
 
 def run_ui() -> str:
     try:
