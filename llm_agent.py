@@ -10,7 +10,7 @@ from typing import Optional
 
 
 def _ollama_chat(messages: list[dict], model: Optional[str] = None, timeout: int = 30) -> str:
-    model = model or os.getenv("AKO_AGENT_MODEL", "exaone3.5:7.8b")
+    model = model or os.getenv("AKO_AGENT_MODEL", "qwen3:4b")
     ollama_url = os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat")
 
     try:
@@ -75,7 +75,7 @@ class ConversationHistory:
 
 class AkoAgent:
     def __init__(self, model: Optional[str] = None):
-        self.model = model or os.getenv("AKO_AGENT_MODEL", "exaone3.5:7.8b")
+        self.model = model or os.getenv("AKO_AGENT_MODEL", "qwen3:4b")
         self.history = ConversationHistory(max_turns=10)
 
     def _parse_response(self, raw: str) -> dict:
