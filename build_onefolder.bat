@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
@@ -9,21 +9,15 @@ set "APP_DIR=dist\Ako-ai"
 set "APP_BACKUP=dist\Ako-ai_backup"
 set "BUILD_OK=0"
 set "PYTHON_EXE="
-
-set "DIST_ROOT=dist"
-set "APP_DIR=dist\Ako-ai"
-set "APP_BACKUP=dist\Ako-ai_backup"
-set "BUILD_OK=0"
-set "PYTHON_EXE="
+set "VENV_PY=.venv\Scripts\python.exe"
+set "OLLAMA_MODEL=exaone3.5:7.8b"
 
 REM --- Ollama 설치 확인 및 자동 설치 ---
 where ollama >nul 2>&1
 if errorlevel 1 (
   echo [INFO] Ollama가 설치되어 있지 않아요. 자동으로 설치할게요...
-  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://ollama.com/install.sh' -OutFile '%TEMP%\ollama-install.ps1'"
-  REM Windows installer 직접 다운로드
   powershell -NoProfile -Command ^
-    "$url='https://ollama.com/download/OllamaSetup.exe'; $out='%TEMP%\OllamaSetup.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/S' -Wait"
+    "$url='https://ollama.com/download/OllamaSetup.exe'; $out='%TEMP%\OllamaSetup.exe'; Invoke-WebRequest -Uri $url -OutFile $out; $p=Start-Process -FilePath $out -ArgumentList '/S' -Wait -PassThru; exit $p.ExitCode"
   if errorlevel 1 (
     echo [ERROR] Ollama 설치 중 문제가 발생했습니다.
     goto :fail
@@ -34,58 +28,30 @@ if errorlevel 1 (
 )
 
 REM --- exaone 모델 확인 및 자동 다운로드 ---
-ollama list 2>nul | findstr "exaone3.5" >nul 2>&1
+ollama list 2>nul | findstr /I /C:"%OLLAMA_MODEL%" >nul 2>&1
 if errorlevel 1 (
-  echo [INFO] exaone3.5:7.8b 모델이 없어요. 다운로드할게요... (약 5GB, 시간이 걸려요)
-  ollama pull exaone3.5:7.8b
+  echo [INFO] %OLLAMA_MODEL% 모델이 없어요. 다운로드할게요... (약 5GB, 시간이 걸려요)
+  ollama pull %OLLAMA_MODEL%
   if errorlevel 1 (
     echo [ERROR] 모델 다운로드 실패
     goto :fail
   )
   echo [INFO] 모델 다운로드 완료
 ) else (
-  echo [INFO] exaone3.5:7.8b 모델 이미 있음
+  echo [INFO] %OLLAMA_MODEL% 모델 이미 있음
 )
 
 REM --- Python 설치 확인 및 자동 설치 ---
 call :resolve_python
 
 if "%PYTHON_EXE%"=="" (
-  echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
-  where winget >nul 2>&1
-  if not errorlevel 1 (
-    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-  ) else (
-    echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
-    powershell -NoProfile -Command ^
-      "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
-  )
-
-if not "%PYTHON_EXE%"=="" (
-  call :is_python_312 "%PYTHON_EXE%"
-  if errorlevel 1 (
-    echo [WARN] 현재 Python은 3.12가 아닙니다. 기존 Python으로 계속 진행합니다: %PYTHON_EXE%
-  )
-)
-
-if "%PYTHON_EXE%"=="" (
-  echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
+  echo [INFO] Python 3.12를 찾지 못했어요. 자동 설치를 시도합니다...
   call :install_python_312
   if errorlevel 1 (
     echo [ERROR] Python 자동 설치 실패
     goto :fail
   )
-
   call :resolve_python
-  if "%PYTHON_EXE%"=="" (
-    call :resolve_python
-  )
-  if not "%PYTHON_EXE%"=="" (
-    call :is_python_312 "%PYTHON_EXE%"
-    if errorlevel 1 (
-      echo [WARN] Python 3.12를 확인하지 못했지만 감지된 Python으로 진행합니다: %PYTHON_EXE%
-    )
-  )
 )
 
 if "%PYTHON_EXE%"=="" (
@@ -93,54 +59,61 @@ if "%PYTHON_EXE%"=="" (
   goto :fail
 )
 
-REM --- Ensure venv (Python 3.12 recommended) ---
-if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" -V >nul 2>&1
+call :is_python_312 "%PYTHON_EXE%"
+if errorlevel 1 (
+  echo [WARN] 현재 Python은 3.12가 아닙니다. 감지된 Python으로 계속 진행합니다: %PYTHON_EXE%
+)
+
+REM --- Ensure venv ---
+if exist "%VENV_PY%" (
+  "%VENV_PY%" -V >nul 2>&1
   if errorlevel 1 (
     echo [WARN] 기존 .venv 가 손상되어 다시 생성합니다.
     rmdir /s /q ".venv"
   )
 )
 
-if not exist ".venv\Scripts\python.exe" (
+if not exist "%VENV_PY%" (
   echo [INFO] Creating venv...
-
   "%PYTHON_EXE%" -m venv .venv
 )
-if not exist ".venv\Scripts\python.exe" (
+
+if not exist "%VENV_PY%" (
   echo [ERROR] Python 가상환경 생성 실패
   goto :fail
 )
 
 REM --- Install deps in venv ---
-call ".venv\Scripts\activate"
-if errorlevel 1 (
-  echo [ERROR] 가상환경 활성화 실패
-  goto :fail
-)
-
-python -m pip install -U pip setuptools wheel
+echo [INFO] 의존성 설치/확인 중...
+"%VENV_PY%" -m pip install -U pip setuptools wheel
 if errorlevel 1 goto :fail
 
-python -m pip install -r requirements.txt
+"%VENV_PY%" -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 
 REM --- Clean output (기존 dist는 백업 후 빌드 실패 시 복구) ---
 if exist "%APP_BACKUP%" rmdir /s /q "%APP_BACKUP%"
 if exist "%APP_DIR%" (
-  echo [INFO] 기존 결과물을 백업합니다: %APP_DIR% -> %APP_BACKUP%
+  echo [INFO] 기존 결과물을 백업합니다: %APP_DIR% ^> %APP_BACKUP%
   move "%APP_DIR%" "%APP_BACKUP%" >nul
 )
 
 if exist "build" rmdir /s /q "build"
 
-
-if exist "build" rmdir /s /q "build"
-
-
 REM --- Build using spec (options must live in .spec) ---
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean "Ako-ai.spec"
+if not exist "Ako-ai.spec" (
+  echo [ERROR] Ako-ai.spec 파일을 찾지 못했습니다.
+  goto :fail
+)
+
+echo [INFO] PyInstaller 빌드 중...
+"%VENV_PY%" -m PyInstaller --noconfirm --clean "Ako-ai.spec"
 if errorlevel 1 goto :fail
+
+if not exist "%APP_DIR%\Ako-ai.exe" (
+  echo [ERROR] 빌드는 끝났지만 exe를 찾지 못했습니다: %APP_DIR%\Ako-ai.exe
+  goto :fail
+)
 
 set "BUILD_OK=1"
 
@@ -173,18 +146,18 @@ if exist "%ProgramFiles%\Python312\python.exe" (
   goto :resolve_python_done
 )
 
-REM 2) PATH 의 python 확인
-for /f "delims=" %%I in ('where python 2^>nul') do (
-  set "PYTHON_EXE=%%~fI"
-  goto :resolve_python_done
-)
-
-REM 3) py launcher가 실제 인터프리터를 찾는지 확인
+REM 2) py launcher가 3.12를 찾는지 확인
 for /f "usebackq delims=" %%I in (`py -3.12 -c "import sys; print(sys.executable)" 2^>nul`) do (
   if exist "%%~fI" (
     set "PYTHON_EXE=%%~fI"
     goto :resolve_python_done
   )
+)
+
+REM 3) PATH 의 python 확인
+for /f "delims=" %%I in ('where python 2^>nul') do (
+  set "PYTHON_EXE=%%~fI"
+  goto :resolve_python_done
 )
 
 :resolve_python_done
@@ -215,8 +188,6 @@ if errorlevel 1 (
 
 call :resolve_python
 if "%PYTHON_EXE%"=="" exit /b 1
-call :is_python_312 "%PYTHON_EXE%"
-if errorlevel 1 exit /b 1
 exit /b 0
 
 :is_python_312
@@ -235,5 +206,4 @@ goto :finalize
 :end
 echo.
 pause
-endlocal
 endlocal
