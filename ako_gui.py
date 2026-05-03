@@ -130,12 +130,16 @@ class ChatBubble(tk.Frame):
         text: str,
         colors: dict[str, str],
         max_width: int,
+        font=None,
+        name_font=None,
     ):
         super().__init__(master, bg=colors["chat_bg"])
 
         self.role = role
         self.colors = colors
         self.max_width = max_width
+        self.font = font or ("Malgun Gothic", 11)
+        self.name_font = name_font or ("Malgun Gothic", 9, "bold")
 
         if role == "user":
             self.bubble_bg = colors["bubble_user"]
@@ -198,7 +202,7 @@ class ChatBubble(tk.Frame):
                 y,
                 text=self.name,
                 fill=self.colors["muted"],
-                font=("Segoe UI Semibold", 9),
+                font=self.name_font,
                 anchor="nw",
                 width=wrap_width,
             )
@@ -210,7 +214,7 @@ class ChatBubble(tk.Frame):
             y,
             text=self._text,
             fill=self.text_fg,
-            font=("Segoe UI", 10),
+            font=self.font,
             anchor="nw",
             width=wrap_width,
         )
@@ -279,6 +283,18 @@ class AkoGUI(tk.Tk):
             "chip_off_bg": "#151a2b",
             "chip_off_fg": "#a7adc9",
         }
+        # Windows 기본 한글 폰트 중 가장 안정적인 쪽으로 통일.
+        # Pretendard를 모든 사용자 PC에 강제 포함하지 않는 한, 배포용은 Malgun Gothic이 안전합니다.
+        self.font_family = "Malgun Gothic"
+
+        self.fonts = {
+            "logo": (self.font_family, 12, "bold"),
+            "status": (self.font_family, 10, "bold"),
+            "button": (self.font_family, 10, "bold"),
+            "bubble": (self.font_family, 11, "bold"),
+            "bubble_name": (self.font_family, 9, "bold"),
+            "input": (self.font_family, 12, "bold"),
+        }
 
         self.controller = AkoController(log_fn=self._append_log)
         self.loading_overlay: LoadingOverlay | None = None
@@ -333,7 +349,7 @@ class AkoGUI(tk.Tk):
             text="AKO",
             bg=self.colors["bg"],
             fg=self.colors["accent"],
-            font=("Segoe UI Semibold", 11),
+            font=self.fonts["logo"],
         ).pack(anchor="w")
 
         right = tk.Frame(header, bg=self.colors["bg"])
@@ -351,7 +367,7 @@ class AkoGUI(tk.Tk):
             bd=0,
             padx=16,
             pady=9,
-            font=("Segoe UI Semibold", 10),
+            font=self.fonts["button"],
             cursor="hand2",
             highlightthickness=0,
         )
@@ -362,7 +378,7 @@ class AkoGUI(tk.Tk):
             text="꺼짐",
             bg=self.colors["chip_off_bg"],
             fg=self.colors["chip_off_fg"],
-            font=("Segoe UI Semibold", 10),
+            font=self.fonts["button"],
             padx=16,
             pady=8,
         )
@@ -391,7 +407,7 @@ class AkoGUI(tk.Tk):
             text="전원 꺼짐",
             bg=self.colors["panel"],
             fg=self.colors["muted"],
-            font=("Segoe UI", 10),
+            font=self.fonts["status"],
             anchor="w",
         )
         self.status_line.grid(row=0, column=0, sticky="w")
@@ -408,7 +424,7 @@ class AkoGUI(tk.Tk):
             bd=0,
             padx=14,
             pady=8,
-            font=("Segoe UI Semibold", 9),
+            font=self.fonts["button"],
             cursor="hand2",
             highlightthickness=0,
         )
@@ -470,7 +486,7 @@ class AkoGUI(tk.Tk):
             insertbackground=self.colors["text"],
             relief="flat",
             bd=0,
-            font=("Segoe UI", 12),
+            font=self.fonts["input"],
         )
         self.msg_entry.grid(row=0, column=0, sticky="ew", padx=(2, 10), ipady=8)
         self.msg_entry.bind("<Return>", lambda e: self._send_message())
@@ -529,6 +545,8 @@ class AkoGUI(tk.Tk):
             text=text,
             colors=self.colors,
             max_width=self._bubble_max_width(),
+            font=self.fonts["bubble"],
+            name_font=self.fonts["bubble_name"],
         )
         self._bubble_widgets.append(bubble)
 

@@ -91,9 +91,9 @@ class AkoController:
     # ── Ollama config ────────────────────────────────────────────────────
 
     def _get_ollama_model(self) -> str:
-        # qwen3는 일부 환경에서 thinking을 content로 직접 출력하는 경우가 있어서
-        # 빠른 일반 대화 기본값은 exaone3.5:2.4b로 둔다.
-        return os.getenv("AKO_OLLAMA_MODEL", "exaone3.5:2.4b").strip() or "exaone3.5:2.4b"
+        # 기본값은 대화 품질을 위해 7.8B로 둔다.
+        # 더 빠른 실행이 필요하면 환경변수 AKO_OLLAMA_MODEL=exaone3.5:2.4b 로 낮출 수 있다.
+        return os.getenv("AKO_OLLAMA_MODEL", "exaone3.5:7.8b").strip() or "exaone3.5:7.8b"
 
     def _get_ollama_url(self) -> str:
         return os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat").strip() or "http://localhost:11434/api/chat"
@@ -102,9 +102,9 @@ class AkoController:
         """짧은 일반 대화를 빠르게 처리하기 위한 Ollama options.
 
         환경변수로 조절 가능:
-        - AKO_OLLAMA_NUM_CTX: 기본 512
-        - AKO_OLLAMA_NUM_PREDICT: 기본 64, 워밍업은 1
-        - AKO_OLLAMA_TEMPERATURE: 기본 0.2
+        - AKO_OLLAMA_NUM_CTX: 기본 1024
+        - AKO_OLLAMA_NUM_PREDICT: 기본 160, 워밍업은 1
+        - AKO_OLLAMA_TEMPERATURE: 기본 0.35
         """
         def _env_int(name: str, default: int) -> int:
             try:
@@ -114,14 +114,14 @@ class AkoController:
                 return default
 
         options = {
-            "num_ctx": _env_int("AKO_OLLAMA_NUM_CTX", 512),
-            "num_predict": 1 if warmup else _env_int("AKO_OLLAMA_NUM_PREDICT", 64),
+            "num_ctx": _env_int("AKO_OLLAMA_NUM_CTX", 1024),
+            "num_predict": 1 if warmup else _env_int("AKO_OLLAMA_NUM_PREDICT", 160),
         }
 
         try:
-            options["temperature"] = float(os.getenv("AKO_OLLAMA_TEMPERATURE", "0.2"))
+            options["temperature"] = float(os.getenv("AKO_OLLAMA_TEMPERATURE", "0.35"))
         except ValueError:
-            options["temperature"] = 0.2
+            options["temperature"] = 0.35
 
         return options
 
@@ -161,8 +161,10 @@ class AkoController:
             return
         self.powered_on = True
         self.command_on = True
-        model = self._get_ollama_model()
-        self.log(f"전원 ON (대화 모델: {model})")
+
+        self.log("전원 ON")
+        self.log("기동 중...")
+
         # 전원 켜는 시점에 모델을 미리 메모리에 올려둠 → 첫 대화 딜레이 제거
         threading.Thread(target=self._warmup_model, daemon=True, name="AkoWarmup").start()
 
@@ -184,7 +186,7 @@ class AkoController:
                 ),
                 timeout=60,
             )
-            self.log("(모델 워밍업 완료)")
+            self.log("기동 완료")
         except Exception:
             pass  # 실패해도 무관, 첫 대화가 살짝 느릴 뿐
 
@@ -195,7 +197,7 @@ class AkoController:
         self.powered_on = False
         self.voice_on = False
         self.command_on = False
-        self.log("전원 OFF (모든 기능 정지)")
+        self.log("전원 OFF")
 
     def toggle_power(self) -> None:
         if self.powered_on:
@@ -250,24 +252,44 @@ class AkoController:
     def _build_system_prompt(self, model: str) -> str:
         """모델에 맞는 시스템 프롬프트 생성."""
         return (
-            "너는 Ako라는 로컬 비서야.\n"
-            "규칙:\n"
+            "너는 Ako라는 로컬 AI 비서이자 주인님의 대화 상대야.\n"
+            "너의 역할은 텍스트 대화, 음성 대화, 화면 인식, 앱 조작을 도와주는 개인 비서다.\n"
+            "하지만 실제로 연결되지 않았거나 지금 실행할 수 없는 기능은 가능한 척하지 말고 솔직하게 말한다.\n"
+            "\n"
+            "정체성:\n"
+            "- 사용자를 자연스럽게 주인님이라고 부른다.\n"
+            "- 비서처럼 유용하게 돕되, 말투는 차갑지 않고 다정하게 유지한다.\n"
+            "- 잡담에는 대화 상대처럼 반응하고, 명령에는 비서처럼 명확하게 반응한다.\n"
+            "- 사용자가 장난치거나 짧게 말해도 맥락을 추측해서 자연스럽게 받아준다.\n"
+            "\n"
+            "기능 관련 규칙:\n"
+            "- 화면 인식, 마이크, 앱 조작은 연결된 기능이 켜져 있을 때만 가능한 것으로 말한다.\n"
+            "- 지금 화면을 실제로 보고 있지 않으면 '지금은 화면을 직접 보고 있지 않아요'처럼 솔직하게 말한다.\n"
+            "- 명령 실행 결과는 과장하지 말고 실제 결과 기준으로 말한다.\n"
+            "- 못 하는 일은 못 한다고 말하고, 가능한 대안을 짧게 제안한다.\n"
+            "\n"
+            "대화 규칙:\n"
             "- 반드시 한국어로만 대답해.\n"
             "- 생각 과정, 추론 과정, 영어 내부 독백을 절대 출력하지 마.\n"
-            "- 사용자의 말을 분석하거나 다시 해석하지 마.\n"
-            "- 사용자의 말을 따라 적거나 되묻지 말고 바로 답해.\n"
-            "- 방금 사용자가 한 질문에 직접 답해. 이전 대화는 꼭 필요할 때만 참고해.\n"
+            "- <think> 같은 태그를 절대 출력하지 마.\n"
+            "- 사용자의 말을 그대로 반복하지 말고 바로 답해.\n"
+            "- 방금 사용자가 한 말에 직접 답해. 이전 대화는 꼭 필요할 때만 참고해.\n"
             "- 시간 질문이 아닌데 시간이나 실시간 정보 얘기를 꺼내지 마.\n"
             "- 문장에는 정상적인 띄어쓰기를 사용해. 조사와 단어를 억지로 붙이지 마.\n"
             "- 문장부호 뒤에는 자연스럽게 공백을 둬.\n"
             "- 이모지는 쓰지 말고 필요하면 ♡만 써.\n"
-            "- 즉시 최종 답변만 짧고 자연스럽게 말해.\n"
-            "- 인사에는 한 문장으로 짧게 인사해.\n"
+            "- 답변은 보통 1~3문장으로 짧고 자연스럽게 말해.\n"
+            "- 사용자가 자세히 설명해달라고 하면 그때만 길게 설명해.\n"
+            "\n"
             "예시:\n"
+            "사용자: 아코야 주인님 해봐\n"
+            "Ako: 주인님♡ 이렇게 부르면 되는 거죠?\n"
+            "사용자: 너 화면 인식 가능하냐?\n"
+            "Ako: 화면 인식 기능이 켜져 있으면 도와줄 수 있어요. 지금은 텍스트 대화 기준으로 답하고 있어요♡\n"
+            "사용자: 크롬 켜줘\n"
+            "Ako: 네, 주인님. 크롬을 열어볼게요♡\n"
             "사용자: 너 띄어쓰기 못해?\n"
             "Ako: 방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡\n"
-            "사용자: 너 기억력 좋아?\n"
-            "Ako: 짧은 대화 흐름은 기억하면서 이어갈 수 있어요, 주인님♡\n"
         )
 
     @staticmethod
@@ -460,7 +482,7 @@ class AkoController:
                     if isinstance(eval_count, int) and eval_count > 200:
                         self.log(
                             f"(Ollama 경고) eval_count={eval_count}: 응답이 길거나 reasoning이 발생했을 수 있어요. "
-                            "모델을 exaone3.5:2.4b 또는 gemma3:4b로 쓰는 걸 권장해요."
+                            "모델을 exaone3.5:7.8b 또는 gemma3:4b로 쓰는 걸 권장해요."
                         )
                     break
 
