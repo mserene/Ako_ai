@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
+from .intent_router import IntentType, classify_intent
 from .memory_store import JsonMemoryStore
 
 from voice_loop import (
@@ -98,21 +99,12 @@ class AkoController:
     # ── Ollama config ────────────────────────────────────────────────────
 
     def _get_ollama_model(self) -> str:
-        # 기본값은 대화 품질을 위해 7.8B로 둔다.
-        # 더 빠른 실행이 필요하면 환경변수 AKO_OLLAMA_MODEL=exaone3.5:2.4b 로 낮출 수 있다.
         return os.getenv("AKO_OLLAMA_MODEL", "exaone3.5:7.8b").strip() or "exaone3.5:7.8b"
 
     def _get_ollama_url(self) -> str:
         return os.getenv("AKO_OLLAMA_URL", "http://localhost:11434/api/chat").strip() or "http://localhost:11434/api/chat"
 
     def _ollama_options(self, *, warmup: bool = False) -> dict:
-        """짧은 일반 대화를 빠르게 처리하기 위한 Ollama options.
-
-        환경변수로 조절 가능:
-        - AKO_OLLAMA_NUM_CTX: 기본 1024
-        - AKO_OLLAMA_NUM_PREDICT: 기본 160, 워밍업은 1
-        - AKO_OLLAMA_TEMPERATURE: 기본 0.35
-        """
         def _env_int(name: str, default: int) -> int:
             try:
                 value = int(os.getenv(name, str(default)))
@@ -140,11 +132,6 @@ class AkoController:
         stream: bool,
         warmup: bool = False,
     ) -> dict:
-        """Ollama /api/chat 요청 본문 생성.
-
-        thinking 제어는 Ollama 최신 API 기준 최상위 think=False로 처리한다.
-        options 안에 넣으면 무시될 수 있으니 반드시 최상위에 둔다.
-        """
         payload = {
             "model": model,
             "stream": stream,
@@ -172,11 +159,9 @@ class AkoController:
         self.log("전원 ON")
         self.log("기동 중...")
 
-        # 전원 켜는 시점에 모델을 미리 메모리에 올려둠 → 첫 대화 딜레이 제거
         threading.Thread(target=self._warmup_model, daemon=True, name="AkoWarmup").start()
 
     def _warmup_model(self) -> None:
-        """Ollama 모델을 메모리에 미리 올려두기 위한 더미 요청."""
         model = self._get_ollama_model()
         ollama_url = self._get_ollama_url()
         try:
@@ -195,7 +180,7 @@ class AkoController:
             )
             self.log("기동 완료")
         except Exception:
-            pass  # 실패해도 무관, 첫 대화가 살짝 느릴 뿐
+            pass
 
     def power_off(self) -> None:
         if not self.powered_on:
@@ -241,26 +226,44 @@ class AkoController:
         self.log(f"[Ako] {result}")
 
     def is_command_text(self, text: str) -> bool:
-        text = (text or "").strip()
-        if not text:
-            return False
-        keywords = [
-            "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭",
-            "닫아", "입력", "검색", "삭제", "가줘", "해줘",
-            "앞으로", "포커스", "띄워", "찾아줘",
-        ]
-        return any(k in text for k in keywords)
+        """GUI 호환용. 실제 판정은 intent_router가 담당한다."""
+        return classify_intent(text).intent == IntentType.COMMAND
 
     def clear_chat_history(self) -> None:
         self._chat_history.clear()
 
+    # ── status helpers ───────────────────────────────────────────────────
+
+    def _status_reply(self, intent: IntentType) -> str | None:
+        if intent == IntentType.SCREEN_STATUS:
+            return (
+                "화면 인식은 연결 구조를 붙이면 사용할 수 있어요. "
+                "지금 이 대화창에서는 제가 화면을 직접 보고 판단하는 상태는 아니에요♡"
+            )
+
+        if intent == IntentType.VOICE_STATUS:
+            if self.voice_on:
+                return "음성 인식은 켜져 있어요. 지금은 듣는 중이에요, 주인님♡"
+            return "음성 인식은 지금 꺼져 있어요. 전원을 켠 뒤 음성 기능을 켜면 들을 수 있어요♡"
+
+        if intent == IntentType.CAPABILITY:
+            return (
+                "저는 텍스트 대화, 명령 실행, 음성 인식, 화면 인식 연동을 목표로 하는 로컬 비서예요. "
+                "지금 연결된 기능 기준으로 가능한 것만 솔직하게 도와드릴게요♡"
+            )
+
+        return None
+
     # ── chat helpers ─────────────────────────────────────────────────────
 
-    def _build_system_prompt(self, model: str, user_text: str = "") -> str:
-        """모델에 맞는 시스템 프롬프트 생성."""
+    def _build_system_prompt(self, model: str, user_text: str = "", intent: IntentType | None = None) -> str:
         memory_block = self._memory_store.build_memory_prompt(user_text) if user_text else ""
 
-        return (
+        intent_line = ""
+        if intent is not None:
+            intent_line = f"현재 입력 분류: {intent.value}\n"
+
+        base = (
             "너는 Ako라는 로컬 AI 비서이자 주인님의 대화 상대야.\n"
             "너의 역할은 텍스트 대화, 음성 대화, 화면 인식, 앱 조작을 도와주는 개인 비서다.\n"
             "하지만 실제로 연결되지 않았거나 지금 실행할 수 없는 기능은 가능한 척하지 말고 솔직하게 말한다.\n"
@@ -270,6 +273,7 @@ class AkoController:
             "- 비서처럼 유용하게 돕되, 말투는 차갑지 않고 다정하게 유지한다.\n"
             "- 잡담에는 대화 상대처럼 반응하고, 명령에는 비서처럼 명확하게 반응한다.\n"
             "- 사용자가 장난치거나 짧게 말해도 맥락을 추측해서 자연스럽게 받아준다.\n"
+            "- 저장된 단어를 키워드처럼 고정 응답으로 반복하지 않는다.\n"
             "\n"
             "기능 관련 규칙:\n"
             "- 화면 인식, 마이크, 앱 조작은 연결된 기능이 켜져 있을 때만 가능한 것으로 말한다.\n"
@@ -290,6 +294,11 @@ class AkoController:
             "- 답변은 보통 1~3문장으로 짧고 자연스럽게 말해.\n"
             "- 사용자가 자세히 설명해달라고 하면 그때만 길게 설명해.\n"
             "\n"
+            "나쁜 답변 습관:\n"
+            "- '무엇을 도와드릴까요?'를 습관처럼 붙이지 마.\n"
+            "- '혹시 다른 도움이 필요하면 언제든지...' 같은 상담원식 문장을 반복하지 마.\n"
+            "- 저장된 기억을 그대로 읊지 마.\n"
+            "\n"
             "예시:\n"
             "사용자: 아코야 주인님 해봐\n"
             "Ako: 주인님♡ 이렇게 부르면 되는 거죠?\n"
@@ -300,20 +309,25 @@ class AkoController:
             "사용자: 너 띄어쓰기 못해?\n"
             "Ako: 방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡\n"
             "\n"
-            f"{memory_block}\n" if memory_block else ""
         )
+
+        return base + intent_line + (memory_block + "\n" if memory_block else "")
 
     @staticmethod
     def _strip_think_tags(content: str) -> str:
-        """모델이 실수로 <think>...</think>를 content에 섞어 보낼 때 제거.
-
-        스트리밍 청크에 쓰이므로 앞뒤 공백을 보존해야 한다.
-        여기서 strip()을 해버리면 "좋은 저녁"이 "좋은저녁"처럼 붙는다.
-        """
         if not content:
             return ""
-
         return re.sub(r"(?is)<think>.*?(?:</think>|$)", "", content)
+
+    @staticmethod
+    def _strip_disallowed_emojis(content: str) -> str:
+        if not content:
+            return ""
+        return re.sub(
+            r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U00002600-\U000026FF]",
+            "",
+            content,
+        )
 
     @staticmethod
     def _looks_like_reasoning_start(text: str) -> bool:
@@ -334,25 +348,12 @@ class AkoController:
 
     @staticmethod
     def _simple_fallback_reply(user_text: str) -> str:
-        """reasoning만 생성되고 최종 답변이 없을 때 최소한 이상한 영어 독백은 숨긴다.
-
-        인사/감사 같은 일반 대화는 여기서 따로 명령어처럼 처리하지 않는다.
-        정말 최종 답변 추출에 실패했을 때만 짧은 안전 답변을 반환한다.
-        """
         return "네, 주인님♡"
 
     @staticmethod
     def _local_chat_reply(user_text: str) -> Optional[str]:
-        """LLM보다 정확하고 빠른 짧은 로컬 응답.
-
-        시간 질문이나 방금 출력 품질 관련 질문은 모델에 맡기면
-        되묻거나 헛소리할 수 있어서 Python에서 바로 처리한다.
-        """
         raw = (user_text or "").strip()
         compact = re.sub(r"\s+", "", raw.lower())
-
-        # 인사(ㅎㅇ/하이/안녕 등)는 명령어나 로컬 응답으로 처리하지 않는다.
-        # 일반 대화는 모델이 자연스럽게 답하도록 둔다.
 
         if "띄어쓰기" in raw and any(word in raw for word in ("못", "왜", "이상", "붙", "안")):
             return "방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡"
@@ -362,21 +363,27 @@ class AkoController:
 
         return None
 
-    def _cleanup_reasoning_text(self, content: str, user_text: str = "") -> str:
-        """content에 영어 reasoning이 섞여 들어온 경우 최종 답변만 남기려고 시도."""
-        text = self._strip_think_tags(content or "")
+    def _postprocess_reply(self, content: str, user_text: str = "") -> str:
+        text = self._strip_disallowed_emojis(self._strip_think_tags(content or ""))
         if not text:
             return ""
 
+        # 모델이 상담원처럼 붙이는 상투어 제거
+        banned_suffixes = [
+            "무엇을 도와드릴까요?",
+            "어떻게 도와드릴까요?",
+            "혹시 다른 도움이 필요하시면 언제든지 말씀해주세요.",
+            "혹시 다른 도움이 필요하면 언제든지 말씀해 주세요.",
+            "편하게 말씀해주세요.",
+            "편하게 말씀해 주세요.",
+        ]
+        for phrase in banned_suffixes:
+            text = text.replace(phrase, "").strip()
+
         # 명시적인 최종 답변 마커가 있으면 그 뒤만 사용
         markers = [
-            "final answer:",
-            "final:",
-            "answer:",
-            "response:",
-            "ako:",
-            "최종 답변:",
-            "답변:",
+            "final answer:", "final:", "answer:", "response:", "ako:",
+            "최종 답변:", "답변:",
         ]
         lower = text.lower()
         for marker in markers:
@@ -387,33 +394,29 @@ class AkoController:
                     text = candidate
                     break
 
-        # 여전히 영어 reasoning 시작이면 사용자에게 보여주지 않는다.
         if self._looks_like_reasoning_start(text):
             return self._simple_fallback_reply(user_text)
 
-        # 영어 reasoning 문장이 섞여 있고 한국어 문장이 뒤에 있는 경우 마지막 한국어 줄 위주로 사용
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         korean_lines = [
             line for line in lines
             if self._has_korean(line) and not self._looks_like_reasoning_start(line)
         ]
         if korean_lines:
-            text = korean_lines[-1]
+            text = "\n".join(korean_lines[-3:])
 
-        # 너무 긴 응답은 짧은 대화 앱에 맞게 앞부분만 남김
         text = text.strip().strip('"').strip("'").strip()
-        if len(text) > 240:
-            text = text[:240].rstrip() + "..."
+        if len(text) > 260:
+            text = text[:260].rstrip() + "..."
 
         return text
+
+    def _cleanup_reasoning_text(self, content: str, user_text: str = "") -> str:
+        return self._postprocess_reply(content, user_text=user_text)
 
     # ── chat (스트리밍) ───────────────────────────────────────────────────
 
     def chat_stream(self, text: str):
-        """
-        스트리밍 버전 chat. 토큰 청크를 yield한다.
-        GUI 스레드에서 직접 호출하지 말고 별도 스레드에서 호출할 것.
-        """
         text = (text or "").strip()
         if not text:
             return
@@ -422,6 +425,9 @@ class AkoController:
             yield "전원이 꺼져 있어서 대화할 수 없어요."
             return
 
+        intent_result = classify_intent(text)
+        intent = intent_result.intent
+
         remembered_reply = self._memory_store.remember_interaction(text)
         if remembered_reply:
             yield remembered_reply
@@ -429,21 +435,21 @@ class AkoController:
 
         local_reply = self._local_chat_reply(text)
         if local_reply:
-            # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
-            # 히스토리에 남기면 다음 일반 대화에서 모델이 이전 유틸 답변에 끌려갈 수 있다.
             yield local_reply
+            return
+
+        status_reply = self._status_reply(intent)
+        if status_reply:
+            yield status_reply
             return
 
         model = self._get_ollama_model()
         ollama_url = self._get_ollama_url()
-        system_prompt = self._build_system_prompt(model, user_text=text)
+        system_prompt = self._build_system_prompt(model, user_text=text, intent=intent)
 
         self._chat_history.add("user", text)
 
-        collected: list[str] = []
         raw_content_parts: list[str] = []
-        initial_probe = ""
-        suppress_reasoning_stream = False
 
         try:
             resp = requests.post(
@@ -468,7 +474,6 @@ class AkoController:
 
                 message = data.get("message") or {}
 
-                # thinking 필드는 무조건 버림
                 if message.get("thinking"):
                     continue
 
@@ -476,44 +481,18 @@ class AkoController:
                 if chunk:
                     raw_content_parts.append(chunk)
 
-                    # 첫 부분을 조금 모아서 reasoning 시작인지 판단한다.
-                    if len(initial_probe) < 80:
-                        initial_probe += chunk
-
-                    if self._looks_like_reasoning_start(initial_probe):
-                        suppress_reasoning_stream = True
-
-                    if suppress_reasoning_stream:
-                        # reasoning으로 시작한 응답은 중간 chunk를 GUI에 내보내지 않고
-                        # done 이후 정리한 최종 답변만 한 번 출력한다.
-                        pass
-                    else:
-                        cleaned_chunk = self._strip_think_tags(chunk)
-                        if cleaned_chunk:
-                            collected.append(cleaned_chunk)
-                            yield cleaned_chunk
-
                 if data.get("done"):
-                    eval_count = data.get("eval_count")
-                    if isinstance(eval_count, int) and eval_count > 200:
-                        self.log(
-                            f"(Ollama 경고) eval_count={eval_count}: 응답이 길거나 reasoning이 발생했을 수 있어요. "
-                            "모델을 exaone3.5:7.8b 또는 gemma3:4b로 쓰는 걸 권장해요."
-                        )
                     break
 
-            raw_full = "".join(raw_content_parts).strip()
+            raw_full = "".join(raw_content_parts)
+            final_text = self._postprocess_reply(raw_full, user_text=text).strip()
+            if not final_text:
+                final_text = self._simple_fallback_reply(text)
 
-            if suppress_reasoning_stream:
-                final_text = self._cleanup_reasoning_text(raw_full, user_text=text).strip()
-                if final_text:
-                    collected = [final_text]
-                    yield final_text
+            yield final_text
 
-            # 오류 메시지가 아닌 정상 응답만 히스토리에 저장
-            full = "".join(collected).strip()
-            if full and not full.startswith("\nOllama") and not full.startswith("\n응답"):
-                self._chat_history.add("assistant", full)
+            if not final_text.startswith("\nOllama") and not final_text.startswith("\n응답"):
+                self._chat_history.add("assistant", final_text)
 
         except requests.exceptions.ConnectionError:
             yield "\nOllama 서버에 연결하지 못했어요. Ollama가 실행 중인지 확인해 주세요."
@@ -526,7 +505,6 @@ class AkoController:
     # ── chat (비스트리밍 fallback) ────────────────────────────────────────
 
     def chat(self, text: str) -> str:
-        """비스트리밍 버전. GUI에서는 chat_stream() 사용 권장."""
         text = (text or "").strip()
         if not text:
             return ""
@@ -534,18 +512,24 @@ class AkoController:
         if not self.powered_on:
             return "전원이 꺼져 있어서 대화할 수 없어요."
 
+        intent_result = classify_intent(text)
+        intent = intent_result.intent
+
         remembered_reply = self._memory_store.remember_interaction(text)
         if remembered_reply:
             return remembered_reply
 
         local_reply = self._local_chat_reply(text)
         if local_reply:
-            # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
             return local_reply
+
+        status_reply = self._status_reply(intent)
+        if status_reply:
+            return status_reply
 
         model = self._get_ollama_model()
         ollama_url = self._get_ollama_url()
-        system_prompt = self._build_system_prompt(model, user_text=text)
+        system_prompt = self._build_system_prompt(model, user_text=text, intent=intent)
 
         self._chat_history.add("user", text)
 
@@ -563,7 +547,7 @@ class AkoController:
             data = resp.json()
 
             content = data.get("message", {}).get("content") or ""
-            content = self._cleanup_reasoning_text(content, user_text=text).strip()
+            content = self._postprocess_reply(content, user_text=text).strip()
             if not content:
                 content = self._simple_fallback_reply(text)
 
@@ -575,7 +559,7 @@ class AkoController:
             return "Ollama 서버에 연결하지 못했어요. Ollama가 실행 중인지 확인해 주세요."
         except requests.exceptions.Timeout:
             logging.warning("Ollama timeout", exc_info=True)
-            return "응답 시간이 너무 오래 걸렸어요. 더 가벼운 모델을 쓰거나 다시 시도해 주세요."
+            return "응답 시간이 너무 오래 걸렸어요. 다시 시도해 주세요."
         except Exception as e:
             logging.exception("Ollama chat failed")
             return f"Ollama 대화 오류: {e}"
