@@ -256,17 +256,18 @@ class AkoController:
             "- 생각 과정, 추론 과정, 영어 내부 독백을 절대 출력하지 마.\n"
             "- 사용자의 말을 분석하거나 다시 해석하지 마.\n"
             "- 사용자의 말을 따라 적거나 되묻지 말고 바로 답해.\n"
+            "- 방금 사용자가 한 질문에 직접 답해. 이전 대화는 꼭 필요할 때만 참고해.\n"
+            "- 시간 질문이 아닌데 시간이나 실시간 정보 얘기를 꺼내지 마.\n"
             "- 문장에는 정상적인 띄어쓰기를 사용해. 조사와 단어를 억지로 붙이지 마.\n"
             "- 문장부호 뒤에는 자연스럽게 공백을 둬.\n"
+            "- 이모지는 쓰지 말고 필요하면 ♡만 써.\n"
             "- 즉시 최종 답변만 짧고 자연스럽게 말해.\n"
             "- 인사에는 한 문장으로 짧게 인사해.\n"
             "예시:\n"
-            "사용자: ㅎㅇ\n"
-            "Ako: 안녕, 주인님♡\n"
-            "사용자: 하이\n"
-            "Ako: 하이, 주인님♡\n"
             "사용자: 너 띄어쓰기 못해?\n"
             "Ako: 방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡\n"
+            "사용자: 너 기억력 좋아?\n"
+            "Ako: 짧은 대화 흐름은 기억하면서 이어갈 수 있어요, 주인님♡\n"
         )
 
     @staticmethod
@@ -300,17 +301,11 @@ class AkoController:
 
     @staticmethod
     def _simple_fallback_reply(user_text: str) -> str:
-        """reasoning만 생성되고 최종 답변이 없을 때 최소한 이상한 영어 독백은 숨긴다."""
-        t = (user_text or "").strip().lower()
+        """reasoning만 생성되고 최종 답변이 없을 때 최소한 이상한 영어 독백은 숨긴다.
 
-        greetings = {"ㅎㅇ", "하이", "안녕", "안뇽", "hello", "hi", "hey", "ㅎㅇㅎㅇ"}
-        if t in greetings or t.replace(" ", "") in greetings:
-            return "안녕, 주인님♡"
-
-        thanks = {"ㄳ", "ㄱㅅ", "감사", "고마워", "땡큐", "thanks", "thank you"}
-        if t in thanks:
-            return "천만에요, 주인님♡"
-
+        인사/감사 같은 일반 대화는 여기서 따로 명령어처럼 처리하지 않는다.
+        정말 최종 답변 추출에 실패했을 때만 짧은 안전 답변을 반환한다.
+        """
         return "네, 주인님♡"
 
     @staticmethod
@@ -323,9 +318,8 @@ class AkoController:
         raw = (user_text or "").strip()
         compact = re.sub(r"\s+", "", raw.lower())
 
-        greetings = {"ㅎㅇ", "ㅎㅇㅎㅇ", "하이", "안녕", "안뇽", "hi", "hello", "hey"}
-        if compact in greetings:
-            return "안녕, 주인님♡"
+        # 인사(ㅎㅇ/하이/안녕 등)는 명령어나 로컬 응답으로 처리하지 않는다.
+        # 일반 대화는 모델이 자연스럽게 답하도록 둔다.
 
         if "띄어쓰기" in raw and any(word in raw for word in ("못", "왜", "이상", "붙", "안")):
             return "방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡"
@@ -397,8 +391,8 @@ class AkoController:
 
         local_reply = self._local_chat_reply(text)
         if local_reply:
-            self._chat_history.add("user", text)
-            self._chat_history.add("assistant", local_reply)
+            # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
+            # 히스토리에 남기면 다음 일반 대화에서 모델이 이전 유틸 답변에 끌려갈 수 있다.
             yield local_reply
             return
 
@@ -504,8 +498,7 @@ class AkoController:
 
         local_reply = self._local_chat_reply(text)
         if local_reply:
-            self._chat_history.add("user", text)
-            self._chat_history.add("assistant", local_reply)
+            # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
             return local_reply
 
         model = self._get_ollama_model()
