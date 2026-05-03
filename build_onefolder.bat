@@ -10,6 +10,12 @@ set "APP_BACKUP=dist\Ako-ai_backup"
 set "BUILD_OK=0"
 set "PYTHON_EXE="
 
+set "DIST_ROOT=dist"
+set "APP_DIR=dist\Ako-ai"
+set "APP_BACKUP=dist\Ako-ai_backup"
+set "BUILD_OK=0"
+set "PYTHON_EXE="
+
 REM --- Ollama 설치 확인 및 자동 설치 ---
 where ollama >nul 2>&1
 if errorlevel 1 (
@@ -43,6 +49,18 @@ if errorlevel 1 (
 
 REM --- Python 설치 확인 및 자동 설치 ---
 call :resolve_python
+
+if "%PYTHON_EXE%"=="" (
+  echo [INFO] Python이 설치되어 있지 않아요. 자동 설치를 시도합니다...
+  where winget >nul 2>&1
+  if not errorlevel 1 (
+    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+  ) else (
+    echo [INFO] winget 이 없어 Python 공식 설치 파일로 진행합니다...
+    powershell -NoProfile -Command ^
+      "$url='https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'; $out='%TEMP%\python-installer.exe'; Invoke-WebRequest -Uri $url -OutFile $out; Start-Process -FilePath $out -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait"
+  )
+
 if not "%PYTHON_EXE%"=="" (
   call :is_python_312 "%PYTHON_EXE%"
   if errorlevel 1 (
@@ -58,6 +76,7 @@ if "%PYTHON_EXE%"=="" (
     goto :fail
   )
 
+  call :resolve_python
   if "%PYTHON_EXE%"=="" (
     call :resolve_python
   )
@@ -112,6 +131,8 @@ if exist "%APP_DIR%" (
   echo [INFO] 기존 결과물을 백업합니다: %APP_DIR% -> %APP_BACKUP%
   move "%APP_DIR%" "%APP_BACKUP%" >nul
 )
+
+if exist "build" rmdir /s /q "build"
 
 
 if exist "build" rmdir /s /q "build"
@@ -214,4 +235,5 @@ goto :finalize
 :end
 echo.
 pause
+endlocal
 endlocal
