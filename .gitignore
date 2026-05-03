@@ -31,3 +31,6 @@ models/
 *.log
 
 .claude/
+dist/
+build/
+installer_output/
