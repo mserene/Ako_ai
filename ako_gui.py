@@ -5,7 +5,6 @@ import sys
 import tkinter as tk
 import threading  
 
-from loading_overlay import LoadingOverlay
 from core.controller import AkoController
 
 
@@ -133,7 +132,6 @@ class AkoGUI(tk.Tk):
         }
 
         self.controller = AkoController(log_fn=self._append_log)
-        self.loading_overlay: LoadingOverlay | None = None
 
         self._placeholder_text = "메시지 입력..."
         self._placeholder_active = True
@@ -143,18 +141,8 @@ class AkoGUI(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        self._start_loading_overlay()
+
         self.deiconify()
-
-    def _start_loading_overlay(self):
-        self.loading_overlay = LoadingOverlay(
-            self,
-            on_done=self._finish_loading_overlay,
-            video_path=os.path.join("assets", "loading", "ako_loading.mp4"),
-        )
-
-    def _finish_loading_overlay(self):
-        self.loading_overlay = None
 
     def _build_ui(self):
         root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=18)
