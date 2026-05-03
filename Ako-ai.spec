@@ -54,6 +54,10 @@ ico = os.path.join(ROOT, "assets", "ako.ico")
 if os.path.exists(ico):
     datas.append((ico, "assets"))
 
+loading_frames_dir = os.path.join(ROOT, "assets", "loading", "frames")
+if os.path.isdir(loading_frames_dir):
+    datas.append((loading_frames_dir, "assets/loading/frames"))
+
 if SITE_PKG:
     fw_assets = os.path.join(SITE_PKG, "faster_whisper", "assets")
     fw_vad    = os.path.join(SITE_PKG, "faster_whisper", "vad.py")

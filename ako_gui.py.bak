@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tkinter as tk
-import threading
-from pathlib import Path  
+import threading  
 
 from loading_overlay import LoadingOverlay
 from core.controller import AkoController
@@ -134,7 +133,6 @@ class AkoGUI(tk.Tk):
         }
 
         self.controller = AkoController(log_fn=self._append_log)
-        self.loading_overlay: LoadingOverlay | None = None
 
         self._placeholder_text = "메시지 입력..."
         self._placeholder_active = True
@@ -146,22 +144,6 @@ class AkoGUI(tk.Tk):
 
 
         self.deiconify()
-        self.update_idletasks()
-        self._start_loading_overlay()
-
-
-    def _start_loading_overlay(self):
-        self.loading_overlay = LoadingOverlay(
-            self,
-            on_done=self._finish_loading_overlay,
-            frames_dir=str(Path("assets") / "loading" / "frames"),
-            fps=24,
-            max_duration_ms=5000,
-            max_frames=180,
-        )
-
-    def _finish_loading_overlay(self):
-        self.loading_overlay = None
 
     def _build_ui(self):
         root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=18)
