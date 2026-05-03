@@ -6,10 +6,13 @@
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
+import os
 import time
 import threading
-from dataclasses import dataclass, field
-from typing import Optional, Callable, Tuple
+from dataclasses import dataclass
+from typing import Optional, Callable
+
+LogFn = Callable[[str], None]
 
 
 @dataclass
@@ -24,6 +27,103 @@ class VoiceConfig:
     language: str = "ko"
     wake_word: str = ""
     print_heard_audio_stats: bool = False
+
+
+# -----------------------------------------------------------------------------
+# 모델 준비/다운로드
+# -----------------------------------------------------------------------------
+def get_user_data_dir() -> str:
+    local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+    path = os.path.join(local, "Ako")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_models_dir(models_root: str | None = None) -> str:
+    root = (models_root or "").strip() if models_root is not None else ""
+    path = root if root else os.path.join(get_user_data_dir(), "models")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+@dataclass
+class BootstrapStatus:
+    ready: bool = False
+    downloading: bool = False
+    last_error: str = ""
+
+
+def ensure_whisper_model(
+    model: str,
+    log: Optional[LogFn] = None,
+    force: bool = False,
+    models_root: str | None = None,
+) -> str:
+    """
+    faster-whisper CTranslate2 모델을 사용자 데이터 폴더에 준비한다.
+    - 이미 존재하면 스킵
+    - 없으면 HuggingFace에서 다운로드
+    반환: 로컬 모델 경로
+    """
+    model = (model or "small").strip()
+    models_dir = get_models_dir(models_root)
+    output_dir = os.path.join(models_dir, model.replace("/", "_"))
+    model_bin = os.path.join(output_dir, "model.bin")
+
+    if not force and os.path.isfile(model_bin):
+        if log:
+            log(f"(부트스트랩) 모델 이미 존재: {output_dir}")
+        return output_dir
+
+    if log:
+        log(f"(부트스트랩) 모델 다운로드 준비: {model} -> {output_dir}")
+
+    try:
+        from faster_whisper.utils import download_model
+    except Exception as e:
+        raise RuntimeError(f"faster-whisper를 불러올 수 없어요: {e}")
+
+    try:
+        download_model(model, output_dir=output_dir, local_files_only=False)
+    except Exception as e:
+        raise RuntimeError(f"모델 다운로드 실패: {e}")
+
+    if not os.path.isfile(model_bin):
+        raise RuntimeError("다운로드가 끝났는데 model.bin을 찾지 못했어요.")
+
+    if log:
+        log(f"(부트스트랩) 모델 준비 완료: {output_dir}")
+    return output_dir
+
+
+def ensure_whisper_model_async(
+    model: str,
+    log: Optional[LogFn],
+    status: BootstrapStatus,
+    on_done: Optional[Callable[[Optional[str]], None]] = None,
+    models_root: str | None = None,
+) -> None:
+    """GUI가 멈추지 않도록 백그라운드 스레드에서 모델을 준비한다."""
+
+    def _task():
+        status.downloading = True
+        status.last_error = ""
+        try:
+            path = ensure_whisper_model(model, log=log, models_root=models_root)
+            status.ready = True
+            if on_done:
+                on_done(path)
+        except Exception as e:
+            status.ready = False
+            status.last_error = str(e)
+            if log:
+                log(f"(부트스트랩) 오류: {e}")
+            if on_done:
+                on_done(None)
+        finally:
+            status.downloading = False
+
+    threading.Thread(target=_task, daemon=True, name="AkoBootstrap").start()
 
 
 # -----------------------------------------------------------------------------

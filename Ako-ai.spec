@@ -24,7 +24,13 @@ SITE_PKG = find_site_packages()
 
 hiddenimports = [
     "ako_gui",
+    "command_actions",
     "llm_agent",
+    "ui_do",
+    "ui_loop",
+    "ui_tap",
+    "ui_vision",
+    "voice_loop",
     *collect_submodules("core"),
     "faster_whisper",
     "ctranslate2",

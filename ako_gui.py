@@ -1,171 +1,354 @@
 from __future__ import annotations
 
-import tkinter as tk
 import os
 import sys
-from tkinter import ttk, filedialog, messagebox
+import tkinter as tk
+import threading  
 
+from loading_overlay import LoadingOverlay
 from core.controller import AkoController
-from core.config import load_config, save_config, is_writable_dir
-from voice_loop import VoiceConfig
 
 
 def resource_path(rel_path: str) -> str:
-    """PyInstaller(onedir/onefile) 모두 대응"""
     base = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base, rel_path)
+
+
+class RoundIconButton(tk.Canvas):
+    def __init__(
+        self,
+        master,
+        command,
+        size=42,
+        bg="#f2f4ff",
+        fg="#0c0f1a",
+        hover_bg="#ffffff",
+        disabled_bg="#555a70",
+    ):
+        super().__init__(
+            master,
+            width=size,
+            height=size,
+            bg=master.cget("bg"),
+            highlightthickness=0,
+            bd=0,
+        )
+        self.command = command
+        self.size = size
+        self.bg_color = bg
+        self.fg_color = fg
+        self.hover_bg = hover_bg
+        self.disabled_bg = disabled_bg
+        self.enabled = True
+        self._pressed = False
+
+        self._draw(bg)
+
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _draw(self, fill):
+        self.delete("all")
+        pad = 2
+        self.create_oval(
+            pad,
+            pad,
+            self.size - pad,
+            self.size - pad,
+            fill=fill,
+            outline="",
+        )
+        cx = self.size / 2
+        cy = self.size / 2
+        self.create_polygon(
+            cx - 5, cy - 7,
+            cx + 8, cy,
+            cx - 5, cy + 7,
+            fill=self.fg_color,
+            outline="",
+        )
+
+    def configure_state(self, enabled: bool):
+        self.enabled = enabled
+        self._draw(self.bg_color if enabled else self.disabled_bg)
+
+    def _on_enter(self, _event):
+        if self.enabled and not self._pressed:
+            self._draw(self.hover_bg)
+
+    def _on_leave(self, _event):
+        if self.enabled and not self._pressed:
+            self._draw(self.bg_color)
+
+    def _on_press(self, _event):
+        if self.enabled:
+            self._pressed = True
+            self._draw(self.hover_bg)
+
+    def _on_release(self, event):
+        if not self.enabled:
+            return
+
+        inside = 0 <= event.x <= self.size and 0 <= event.y <= self.size
+        self._pressed = False
+        self._draw(self.hover_bg if inside else self.bg_color)
+
+        if inside and self.command:
+            self.command()
 
 
 class AkoGUI(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.withdraw()
+
         try:
             self.iconbitmap(resource_path(os.path.join("assets", "ako.ico")))
         except Exception:
             pass
+
         self.title("Ako")
-        self.geometry("620x420")
-        self.minsize(620, 420)
+        self.geometry("940x680")
+        self.minsize(860, 600)
+        self.configure(bg="#090b14")
+
+        self.colors = {
+            "bg": "#090b14",
+            "panel": "#101321",
+            "panel_2": "#151a2b",
+            "border": "#2a2f4b",
+            "text": "#eceefe",
+            "muted": "#a7adc9",
+            "accent": "#ab8dff",
+            "accent_soft": "#241f45",
+            "entry_bg": "#23252d",
+            "entry_fg": "#f3f4ff",
+            "log_bg": "#0c0f1b",
+            "chip_on_bg": "#241f45",
+            "chip_on_fg": "#ab8dff",
+            "chip_off_bg": "#151a2b",
+            "chip_off_fg": "#a7adc9",
+        }
 
         self.controller = AkoController(log_fn=self._append_log)
+        self.loading_overlay: LoadingOverlay | None = None
 
-        # load persistent config
-        self.cfg, self.cfg_path = load_config()
-        self.controller.set_models_root(self.cfg.effective_model_dir)
+        self._placeholder_text = "메시지 입력..."
+        self._placeholder_active = True
 
-        # ---------- styles ----------
-        try:
-            style = ttk.Style(self)
-            if "vista" in style.theme_names():
-                style.theme_use("vista")
-        except Exception:
-            pass
-
-        # ---------- layout ----------
-        self._build_top()
-        self._build_modes()
-        self._build_command()
-        self._build_log()
-
+        self._build_ui()
         self._refresh_ui()
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ---- model dir handlers ---- (중복 제거: 단일 구현으로 통합)
-    def on_change_model_dir(self):
-        chosen = filedialog.askdirectory(title="모델 저장 폴더 선택")
-        if not chosen:
-            return
+        self._start_loading_overlay()
+        self.deiconify()
 
-        # 선택 폴더 검증 (쓰기 불가면 config 건드리지 않고 기본값 유지)
-        if not is_writable_dir(chosen):
-            messagebox.showerror("폴더 오류", "선택한 폴더에 저장할 수 없어요.\n기본 경로를 계속 사용할게요.")
-            self._append_log(f"[MODEL] 적용 실패(쓰기 불가): {chosen}")
-            if hasattr(self, "model_path_var"):
-                self.model_path_var.set(self.cfg.effective_model_dir)
-            return
+    def _start_loading_overlay(self):
+        self.loading_overlay = LoadingOverlay(
+            self,
+            on_done=self._finish_loading_overlay,
+            video_path=os.path.join("assets", "loading", "ako_loading.mp4"),
+        )
 
-        # 저장 + 적용
-        self.cfg.model_dir = chosen
-        save_config(self.cfg, self.cfg_path)
+    def _finish_loading_overlay(self):
+        self.loading_overlay = None
 
-        eff = self.cfg.effective_model_dir
-        self.controller.set_models_root(eff)
-        if hasattr(self, "model_path_var"):
-            self.model_path_var.set(eff)
+    def _build_ui(self):
+        root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=18)
+        root.pack(fill="both", expand=True)
 
-        self._append_log(f"[MODEL] 저장 위치 변경: {eff}")
-        self._refresh_ui()
+        header = tk.Frame(root, bg=self.colors["bg"])
+        header.pack(fill="x")
 
-    def on_reset_model_dir(self):
-        self.cfg.model_dir = ""
-        save_config(self.cfg, self.cfg_path)
+        header_left = tk.Frame(header, bg=self.colors["bg"])
+        header_left.pack(side="left", fill="x", expand=True)
 
-        eff = self.cfg.effective_model_dir
-        self.controller.set_models_root(eff)
-        if hasattr(self, "model_path_var"):
-            self.model_path_var.set(eff)
+        tk.Label(
+            header_left,
+            text="AKO",
+            bg=self.colors["bg"],
+            fg=self.colors["accent"],
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w")
 
-        self._append_log(f"[MODEL] 기본값으로 재설정: {eff}")
-        self._refresh_ui()
+        tk.Label(
+            header_left,
+            text="대화 인터페이스",
+            bg=self.colors["bg"],
+            fg=self.colors["text"],
+            font=("Segoe UI Semibold", 22),
+        ).pack(anchor="w", pady=(4, 0))
 
-    # ---------------- UI blocks ----------------
-    def _build_top(self):
-        top = ttk.Frame(self, padding=12)
-        top.pack(fill="x")
+        tk.Label(
+            header_left,
+            text="명령도 실행하고 일상대화도 가능한 채팅 화면",
+            bg=self.colors["bg"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(6, 0))
 
-        self.power_var = tk.StringVar(value="OFF")
-        ttk.Label(top, text="전원:", font=("Segoe UI", 12)).pack(side="left")
-        self.power_badge = ttk.Label(top, textvariable=self.power_var, font=("Segoe UI", 12, "bold"))
-        self.power_badge.pack(side="left", padx=(8, 16))
+        right = tk.Frame(header, bg=self.colors["bg"])
+        right.pack(side="right")
 
-        self.power_btn = ttk.Button(top, text="전원 켜기", command=self._toggle_power)
-        self.power_btn.pack(side="right")
+        self.power_chip = tk.Label(
+            right,
+            text="꺼짐",
+            bg=self.colors["chip_off_bg"],
+            fg=self.colors["chip_off_fg"],
+            font=("Segoe UI Semibold", 10),
+            padx=16,
+            pady=8,
+        )
+        self.power_chip.pack(side="right")
 
-    def _build_modes(self):
-        box = ttk.LabelFrame(self, text="기능 스위치", padding=12)
-        box.pack(fill="x", padx=12, pady=(0, 10))
+        self.power_btn = tk.Button(
+            right,
+            text="전원 켜기",
+            command=self._toggle_power,
+            bg="#ab8dff",
+            fg="#0b0b14",
+            activebackground="#bea7ff",
+            activeforeground="#0b0b14",
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=9,
+            font=("Segoe UI Semibold", 10),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+        self.power_btn.pack(side="right", padx=(0, 10))
 
-        self.voice_var = tk.BooleanVar(value=False)
-        self.cmd_var = tk.BooleanVar(value=False)
+        main_panel = tk.Frame(
+            root,
+            bg=self.colors["panel"],
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            bd=0,
+            padx=18,
+            pady=18,
+        )
+        main_panel.pack(fill="both", expand=True, pady=(16, 0))
 
-        self.voice_chk = ttk.Checkbutton(box, text="음성 인식", variable=self.voice_var, command=self._toggle_voice)
-        self.voice_chk.pack(side="left")
+        top_info = tk.Frame(main_panel, bg=self.colors["panel"])
+        top_info.pack(fill="x", pady=(0, 12))
 
-        self.cmd_chk = ttk.Checkbutton(box, text="명령창(채팅)", variable=self.cmd_var, command=self._toggle_cmd)
-        self.cmd_chk.pack(side="left", padx=(16, 0))
+        self.status_line = tk.Label(
+            top_info,
+            text="전원 꺼짐",
+            bg=self.colors["panel"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 10),
+            anchor="w",
+        )
+        self.status_line.pack(side="left", fill="x", expand=True)
 
-        # 음성 옵션
-        opt = ttk.Frame(box)
-        opt.pack(side="right")
+        self.clear_btn = tk.Button(
+            top_info,
+            text="대화 지우기",
+            command=self._clear_log,
+            bg="#1b1f34",
+            fg="#f3f4ff",
+            activebackground="#2a3050",
+            activeforeground="#f3f4ff",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=8,
+            font=("Segoe UI Semibold", 9),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+        self.clear_btn.pack(side="right")
 
-        ttk.Label(opt, text="Wake:").pack(side="left")
-        self.wake_entry = ttk.Entry(opt, width=10)
-        self.wake_entry.insert(0, "아코")
-        self.wake_entry.pack(side="left", padx=(6, 12))
+        log_wrap = tk.Frame(
+            main_panel,
+            bg=self.colors["log_bg"],
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+        log_wrap.pack(fill="both", expand=True)
 
-        ttk.Label(opt, text="Model:").pack(side="left")
-        self.model_entry = ttk.Entry(opt, width=10)
-        self.model_entry.insert(0, "small")
-        self.model_entry.pack(side="left", padx=(6, 0))
-
-        # 모델 저장 위치
-        path_row = ttk.Frame(box)
-        path_row.pack(fill="x", pady=(10, 0))
-        ttk.Label(path_row, text="모델 저장 위치:").pack(side="left")
-        self.model_path_var = tk.StringVar(value=self.cfg.effective_model_dir)
-        ttk.Label(path_row, textvariable=self.model_path_var).pack(side="left", padx=(8, 8), fill="x", expand=True)
-        ttk.Button(path_row, text="변경", command=self.on_change_model_dir).pack(side="right", padx=(6, 0))
-        ttk.Button(path_row, text="기본값", command=self.on_reset_model_dir).pack(side="right", padx=(6, 0))
-
-    def _build_command(self):
-        box = ttk.LabelFrame(self, text="명령 입력", padding=12)
-        box.pack(fill="x", padx=12, pady=(0, 10))
-
-        row = ttk.Frame(box)
-        row.pack(fill="x")
-
-        self.cmd_entry = ttk.Entry(row)
-        self.cmd_entry.pack(side="left", fill="x", expand=True)
-        self.cmd_entry.bind("<Return>", lambda e: self._send_command())
-
-        self.send_btn = ttk.Button(row, text="보내기", command=self._send_command)
-        self.send_btn.pack(side="left", padx=(8, 0))
-
-        self.hint = ttk.Label(box, text="예: 크롬 켜줘 / 유튜브 재생 눌러줘 / 오른쪽에 있는 닫기 눌러줘")
-        self.hint.pack(anchor="w", pady=(8, 0))
-
-    def _build_log(self):
-        box = ttk.LabelFrame(self, text="로그", padding=12)
-        box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-
-        self.log_text = tk.Text(box, wrap="word", height=10, state="disabled")
+        self.log_text = tk.Text(
+            log_wrap,
+            wrap="word",
+            state="disabled",
+            bg=self.colors["log_bg"],
+            fg=self.colors["text"],
+            insertbackground=self.colors["accent"],
+            selectbackground=self.colors["accent_soft"],
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=16,
+            font=("Consolas", 10),
+        )
         self.log_text.pack(fill="both", expand=True)
 
-        btns = ttk.Frame(box)
-        btns.pack(fill="x", pady=(8, 0))
-        ttk.Button(btns, text="로그 지우기", command=self._clear_log).pack(side="right")
+        bottom = tk.Frame(root, bg=self.colors["bg"])
+        bottom.pack(fill="x", pady=(14, 0))
 
-    # ---------------- actions ----------------
+        input_shell = tk.Frame(
+            bottom,
+            bg=self.colors["entry_bg"],
+            highlightbackground="#3a3d49",
+            highlightthickness=1,
+            bd=0,
+            padx=14,
+            pady=10,
+        )
+        input_shell.pack(fill="x")
+
+        self.msg_entry = tk.Entry(
+            input_shell,
+            bg=self.colors["entry_bg"],
+            fg=self.colors["muted"],
+            insertbackground=self.colors["text"],
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 12),
+        )
+        self.msg_entry.pack(side="left", fill="x", expand=True, padx=(2, 10), ipady=6)
+        self.msg_entry.bind("<Return>", lambda e: self._send_message())
+        self.msg_entry.bind("<FocusIn>", self._on_entry_focus_in)
+        self.msg_entry.bind("<FocusOut>", self._on_entry_focus_out)
+
+        self._set_placeholder()
+
+        self.send_btn = RoundIconButton(
+            input_shell,
+            command=self._send_message,
+            size=40,
+            bg="#f2f4ff",
+            fg="#0c0f1a",
+            hover_bg="#ffffff",
+            disabled_bg="#666b88",
+        )
+        self.send_btn.pack(side="right")
+
+    def _set_placeholder(self):
+        self.msg_entry.delete(0, "end")
+        self.msg_entry.insert(0, self._placeholder_text)
+        self.msg_entry.configure(fg=self.colors["muted"])
+        self._placeholder_active = True
+
+    def _clear_placeholder(self):
+        if self._placeholder_active:
+            self.msg_entry.delete(0, "end")
+            self.msg_entry.configure(fg=self.colors["entry_fg"])
+            self._placeholder_active = False
+
+    def _on_entry_focus_in(self, _event):
+        self._clear_placeholder()
+
+    def _on_entry_focus_out(self, _event):
+        if not self.msg_entry.get().strip():
+            self._set_placeholder()
+
     def _append_log(self, line: str):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", line + "\n")
@@ -176,62 +359,158 @@ class AkoGUI(tk.Tk):
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+        if hasattr(self.controller, "clear_chat_history"):
+            self.controller.clear_chat_history()
 
     def _toggle_power(self):
         self.controller.toggle_power()
-        if not self.controller.powered_on:
-            self.voice_var.set(False)
-            self.cmd_var.set(False)
-        else:
-            self.cmd_var.set(True)
         self._refresh_ui()
 
-    def _toggle_voice(self):
-        if self.voice_var.get():
-            cfg = VoiceConfig(
-                wake_word=self.wake_entry.get().strip(),
-                model=self.model_entry.get().strip() or "small",
-                language="ko",
-            )
-            self.controller.set_voice(True, cfg=cfg)
-        else:
-            self.controller.set_voice(False)
-        self._refresh_ui()
-
-    def _toggle_cmd(self):
-        self.controller.set_command(bool(self.cmd_var.get()))
-        self._refresh_ui()
-
-    def _send_command(self):
-        text = self.cmd_entry.get().strip()
-        if not text:
+    def _send_message(self):
+        text = self.msg_entry.get().strip()
+        if self._placeholder_active or not text:
             return
-        self.cmd_entry.delete(0, "end")
+
+        self.msg_entry.delete(0, "end")
+        self.msg_entry.configure(fg=self.colors["entry_fg"])
+        self._placeholder_active = False
+
         self._append_log(f"[나] {text}")
-        self.controller.handle_text_command(text)
-        self._refresh_ui()
+        self.status_line.configure(text="메시지 처리 중...")
+
+        self._handle_message(text)
+        self.msg_entry.focus_set()
+
+    def _handle_message(self, text: str):
+        """명령어는 즉시 처리, 일반 대화는 논블로킹 스트리밍으로 처리."""
+        try:
+            handled = False
+            if hasattr(self.controller, "is_command_text"):
+                try:
+                    handled = bool(self.controller.is_command_text(text))
+                except Exception:
+                    handled = False
+            else:
+                command_hints = [
+                    "열어", "켜", "꺼", "실행", "재생", "눌러", "클릭", "검색",
+                    "닫아", "삭제", "입력", "가줘", "가자", "해줘",
+                ]
+                handled = any(k in text for k in command_hints)
+
+            if handled:
+                # 명령어: 기존 방식 유지 (이미 빠름)
+                self.controller.handle_text_command(text)
+                self.status_line.configure(text="명령 실행 완료")
+                return
+
+            # 일반 대화: 비동기 스트리밍
+            self._start_chat_async(text)
+
+        except Exception as e:
+            self._append_log(f"[오류] {e}")
+            self.status_line.configure(text="오류 발생")
+            self._set_input_enabled(True)
+
+    # ── 스트리밍 대화 관련 메서드 ──────────────────────────────────────────
+
+    def _set_input_enabled(self, enabled: bool):
+        """입력창·전송 버튼 활성/비활성 토글."""
+        if enabled and self.controller.powered_on:
+            self.msg_entry.configure(state="normal")
+            self.send_btn.configure_state(True)
+            if self._placeholder_active:
+                self.msg_entry.configure(fg=self.colors["muted"])
+            else:
+                self.msg_entry.configure(fg=self.colors["entry_fg"])
+        else:
+            self.msg_entry.configure(state="disabled")
+            self.send_btn.configure_state(False)
+
+    def _start_chat_async(self, text: str):
+        """별도 스레드에서 스트리밍 chat을 시작하고 GUI는 즉시 반환."""
+        self.status_line.configure(text="[아코] 생각 중...")
+        self._set_input_enabled(False)
+
+        # 로그창에 "[아코] " 접두어 미리 삽입해두고 토큰을 이어 붙일 준비
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", "[아코] ")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+
+        threading.Thread(
+            target=self._chat_stream_worker,
+            args=(text,),
+            daemon=True,
+            name="AkoChatStream",
+        ).start()
+
+    def _chat_stream_worker(self, text: str):
+        """백그라운드 스레드: 토큰을 받을 때마다 GUI 업데이트 예약."""
+        try:
+            for chunk in self.controller.chat_stream(text):
+                # after(0, ...) → tkinter 메인 루프에 안전하게 콜백 전달
+                self.after(0, self._on_stream_chunk, chunk)
+        except Exception as e:
+            self.after(0, self._on_stream_error, str(e))
+        finally:
+            self.after(0, self._on_stream_done)
+
+    def _on_stream_chunk(self, chunk: str):
+        """메인 스레드: 토큰 청크를 로그창에 실시간 추가."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", chunk)
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+
+    def _on_stream_done(self):
+        """메인 스레드: 스트리밍 완료 후 정리."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", "\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+        self.status_line.configure(text="대기 중")
+        self._set_input_enabled(True)
+        self.msg_entry.focus_set()
+
+    def _on_stream_error(self, error: str):
+        """메인 스레드: 스트림 중 에러 처리."""
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"\n[오류] {error}\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+        self.status_line.configure(text="오류 발생")
+        self._set_input_enabled(True)
 
     def _refresh_ui(self):
         on = self.controller.powered_on
-        self.power_var.set("ON" if on else "OFF")
+
         self.power_btn.configure(text="전원 끄기" if on else "전원 켜기")
 
-        state = "normal" if on else "disabled"
-        self.voice_chk.configure(state=state)
-        self.cmd_chk.configure(state=state)
-        self.wake_entry.configure(state=state)
-        self.model_entry.configure(state=state)
-
-        cmd_state = "normal" if (on and self.controller.command_on) else "disabled"
-        self.cmd_entry.configure(state=cmd_state)
-        self.send_btn.configure(state=cmd_state)
-
         if not on:
-            self.voice_var.set(False)
-            self.cmd_var.set(False)
+            self.power_chip.configure(
+                text="꺼짐",
+                bg=self.colors["chip_off_bg"],
+                fg=self.colors["chip_off_fg"],
+            )
+            self.msg_entry.configure(state="disabled")
+            self.send_btn.configure_state(False)
+            self.status_line.configure(text="전원 꺼짐")
         else:
-            self.voice_var.set(bool(self.controller.voice_on))
-            self.cmd_var.set(bool(self.controller.command_on))
+            self.power_chip.configure(
+                text="켜짐",
+                bg=self.colors["chip_on_bg"],
+                fg=self.colors["chip_on_fg"],
+            )
+            self.msg_entry.configure(state="normal")
+            self.send_btn.configure_state(True)
+
+            if self._placeholder_active:
+                self.msg_entry.configure(fg=self.colors["muted"])
+            else:
+                self.msg_entry.configure(fg=self.colors["entry_fg"])
+
+            if self.status_line.cget("text") in ("전원 꺼짐", "대기 중"):
+                self.status_line.configure(text="대기 중")
 
     def _on_close(self):
         try:

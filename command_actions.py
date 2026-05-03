@@ -21,6 +21,7 @@ import ctypes.wintypes as wt
 import glob
 import io
 import json
+import logging
 import os
 import re
 import subprocess
@@ -188,7 +189,10 @@ def _app_activate_by_pid(pid: int) -> bool:
         return False
 
 
-_user32 = ctypes.WinDLL("user32", use_last_error=True) if sys.platform == "win32" else None
+try:
+    _user32 = ctypes.WinDLL("user32", use_last_error=True) if sys.platform == "win32" else None
+except OSError:
+    _user32 = None
 
 SW_RESTORE = 9
 SW_SHOW = 5
@@ -318,19 +322,26 @@ class AppSpec:
 
 
 _APP_CACHE: Optional[Dict[str, AppSpec]] = None
+_APP_CACHE_MTIME: float = 0.0
 
 
 def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
-    # 앱 사전은 여러 곳에서 공유되니 1회 로딩 후 캐시한다.
-    global _APP_CACHE
-    if _APP_CACHE is not None:
+    # 앱 사전은 여러 곳에서 공유되니 수정 시간이 같을 때만 캐시를 재사용한다.
+    global _APP_CACHE, _APP_CACHE_MTIME
+    full = _data_path(path)
+    try:
+        mtime = os.path.getmtime(full)
+    except Exception:
+        mtime = 0.0
+    if _APP_CACHE is not None and mtime == _APP_CACHE_MTIME:
         return _APP_CACHE
 
     try:
-        with open(_data_path(path), "r", encoding="utf-8") as f:
+        with open(full, "r", encoding="utf-8") as f:
             raw = json.load(f)
         apps = raw.get("apps", raw)
     except Exception:
+        logging.exception("load_app_specs failed")
         apps = {}
 
     out: Dict[str, AppSpec] = {}
@@ -348,6 +359,7 @@ def load_app_specs(path: str = "app_commands.json") -> Dict[str, AppSpec]:
         )
 
     _APP_CACHE = out
+    _APP_CACHE_MTIME = mtime
     return out
 
 
@@ -512,17 +524,23 @@ class SearchSite:
 
 
 _SEARCH_CACHE: Optional[Tuple[str, Dict[str, SearchSite]]] = None
+_SEARCH_CACHE_MTIME: float = 0.0
 
 
 def load_search_sites(path: str = "search_sites.json") -> Tuple[str, Dict[str, SearchSite]]:
-    global _SEARCH_CACHE
-    if _SEARCH_CACHE is not None:
+    global _SEARCH_CACHE, _SEARCH_CACHE_MTIME
+    full = _data_path(path)
+    try:
+        mtime = os.path.getmtime(full)
+    except Exception:
+        mtime = 0.0
+    if _SEARCH_CACHE is not None and mtime == _SEARCH_CACHE_MTIME:
         return _SEARCH_CACHE
 
     default_key = "google"
     sites: Dict[str, SearchSite] = {}
     try:
-        with open(_data_path(path), "r", encoding="utf-8") as f:
+        with open(full, "r", encoding="utf-8") as f:
             raw = json.load(f)
         default_key = raw.get("default", default_key)
         raw_sites = raw.get("sites", {})
@@ -538,9 +556,10 @@ def load_search_sites(path: str = "search_sites.json") -> Tuple[str, Dict[str, S
                 browser_app=str(v.get("browser_app", "")),
             )
     except Exception:
-        pass
+        logging.exception("load_search_sites failed")
 
     _SEARCH_CACHE = (default_key, sites)
+    _SEARCH_CACHE_MTIME = mtime
     return _SEARCH_CACHE
 
 
@@ -629,8 +648,7 @@ def handle_youtube_toggle(text: str) -> Optional[str]:
     dm = re.search(_DIR_PAT, s)
     direction = dm.group(0) if dm else None
 
-    if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s) and \
-       re.search(r"(눌러\s*줘|눌러줘|해\s*줘|해줘|해\s*줄래|해줄래)", s):
+    if re.search(r"(재생|일시\s*정지|일시정지|멈춰|정지|토글)", s):
         try:
             from ui_tap import youtube_toggle_click_only
             youtube_toggle_click_only(direction=direction)

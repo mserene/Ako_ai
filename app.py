@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 
@@ -20,25 +21,21 @@ def _set_workdir_to_appdir() -> str:
 
 _APP_DIR = _set_workdir_to_appdir()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("ako.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
 
-# -----------------------------------------------------------------------------
-# run_actions: 텍스트 명령 → 실행
-# 명령 파싱 로직은 command_actions.py로 위임 (app.py는 진입점만 담당)
-# -----------------------------------------------------------------------------
+
 def run_actions(text: str) -> str:
     txt = (text or "").strip()
     if not txt:
         return "명령이 비어 있어요."
 
-    # LLM 에이전트 우선 시도
-    try:
-        from llm_agent import run_agent
-        return run_agent(txt)
-    except Exception as e:
-        # Ollama 연결 실패 등 → 기존 규칙 기반으로 fallback
-        pass
-
-    # --- fallback: 규칙 기반 처리 ---
     try:
         from command_actions import (
             handle_youtube_toggle,
@@ -48,22 +45,25 @@ def run_actions(text: str) -> str:
             load_app_specs,
         )
     except ImportError as e:
+        logging.exception("command_actions import failed")
         return f"명령 모듈 로드 실패: {e}"
 
-    # 0) 유튜브 토글(재생/일시정지)
+    # 0) 유튜브 토글
     try:
         r = handle_youtube_toggle(txt)
         if r:
             return r
     except Exception as e:
+        logging.exception("youtube toggle failed")
         return f"유튜브 토글 오류: {e}"
 
-    # 1) UI 클릭 ("닫기 눌러줘" 등)
+    # 1) UI 클릭
     try:
         r = handle_ui_click(txt)
         if r:
             return r
     except Exception as e:
+        logging.exception("ui click failed")
         return f"UI 클릭 오류: {e}"
 
     # 2) 앱 실행/포커스
@@ -73,6 +73,7 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
+        logging.exception("open app failed")
         return f"앱 실행 오류: {e}"
 
     # 3) 검색
@@ -81,10 +82,17 @@ def run_actions(text: str) -> str:
         if r:
             return r
     except Exception as e:
+        logging.exception("search failed")
         return f"검색 오류: {e}"
 
-    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
+    # 4) 그래도 못 잡으면 LLM 에이전트
+    try:
+        from llm_agent import run_agent
+        return run_agent(txt)
+    except Exception as e:
+        logging.warning("[LLM fallback failed] %s", e, exc_info=True)
 
+    return "명령을 이해하지 못했어요. 예: '크롬 켜줘', '디스코드 앞으로', '유튜브에서 고양이 검색해줘'"
 
 def run_ui() -> str:
     try:
@@ -92,18 +100,20 @@ def run_ui() -> str:
         ui_mvp_loop()
         return "UI 루프 종료"
     except Exception as e:
+        logging.exception("UI loop failed")
         return f"UI 루프 오류: {e}"
 
 
 def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: str = "") -> str:
     if tap:
         try:
-            from ui_tap import tap_youtube_toggle
+            from ui_tap import youtube_toggle_click_only
             if tap in ("youtube", "youtube_toggle", "yt"):
-                tap_youtube_toggle(direction=(direction or None), backup_k=True)
+                youtube_toggle_click_only(direction=(direction or None))
                 return "[DO] ok"
             return f"[DO] 알 수 없는 tap 액션: {tap}"
         except Exception as e:
+            logging.exception("tap action failed")
             return f"[DO] tap 오류: {e}"
 
     try:
@@ -111,6 +121,7 @@ def run_do(press: str = "", direction: str = "", timeout_sec: float = 8.0, tap: 
         ok = do_click_text(target_text=press, direction=(direction or None), monitor_index=1, timeout_sec=timeout_sec)
         return "[DO] ok" if ok else f"[DO] '{press}'를 화면에서 찾지 못했어요."
     except Exception as e:
+        logging.exception("do_click_text failed")
         return f"[DO] 오류: {e}"
 
 
@@ -137,6 +148,7 @@ def main():
             from ako_gui import main as gui_main
             gui_main()
         except Exception as e:
+            logging.exception("GUI launch failed")
             print(f"[GUI] 실행 오류: {e}")
         return
 
@@ -173,6 +185,7 @@ def main():
             )
             voice_actions_loop(cfg)
         except Exception as e:
+            logging.exception("VOICE launch failed")
             print(f"[VOICE] 실행 오류: {e}")
 
 
