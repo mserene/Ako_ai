@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
+from .memory_store import JsonMemoryStore
+
 from voice_loop import (
     BootstrapStatus,
     VoiceConfig,
@@ -64,6 +66,11 @@ class AkoController:
     _voice_stop: Optional[threading.Event] = field(default=None, init=False, repr=False)
     _chat_history: ConversationHistory = field(
         default_factory=lambda: ConversationHistory(max_turns=8),
+        init=False,
+        repr=False,
+    )
+    _memory_store: JsonMemoryStore = field(
+        default_factory=JsonMemoryStore,
         init=False,
         repr=False,
     )
@@ -249,8 +256,10 @@ class AkoController:
 
     # ── chat helpers ─────────────────────────────────────────────────────
 
-    def _build_system_prompt(self, model: str) -> str:
+    def _build_system_prompt(self, model: str, user_text: str = "") -> str:
         """모델에 맞는 시스템 프롬프트 생성."""
+        memory_block = self._memory_store.build_memory_prompt(user_text) if user_text else ""
+
         return (
             "너는 Ako라는 로컬 AI 비서이자 주인님의 대화 상대야.\n"
             "너의 역할은 텍스트 대화, 음성 대화, 화면 인식, 앱 조작을 도와주는 개인 비서다.\n"
@@ -290,6 +299,8 @@ class AkoController:
             "Ako: 네, 주인님. 크롬을 열어볼게요♡\n"
             "사용자: 너 띄어쓰기 못해?\n"
             "Ako: 방금 띄어쓰기가 이상했어요. 이제 제대로 띄어서 말할게요♡\n"
+            "\n"
+            f"{memory_block}\n" if memory_block else ""
         )
 
     @staticmethod
@@ -411,6 +422,11 @@ class AkoController:
             yield "전원이 꺼져 있어서 대화할 수 없어요."
             return
 
+        remembered_reply = self._memory_store.remember_interaction(text)
+        if remembered_reply:
+            yield remembered_reply
+            return
+
         local_reply = self._local_chat_reply(text)
         if local_reply:
             # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
@@ -420,7 +436,7 @@ class AkoController:
 
         model = self._get_ollama_model()
         ollama_url = self._get_ollama_url()
-        system_prompt = self._build_system_prompt(model)
+        system_prompt = self._build_system_prompt(model, user_text=text)
 
         self._chat_history.add("user", text)
 
@@ -518,6 +534,10 @@ class AkoController:
         if not self.powered_on:
             return "전원이 꺼져 있어서 대화할 수 없어요."
 
+        remembered_reply = self._memory_store.remember_interaction(text)
+        if remembered_reply:
+            return remembered_reply
+
         local_reply = self._local_chat_reply(text)
         if local_reply:
             # 시간/출력 품질 같은 로컬 유틸 응답은 대화 히스토리에 남기지 않는다.
@@ -525,7 +545,7 @@ class AkoController:
 
         model = self._get_ollama_model()
         ollama_url = self._get_ollama_url()
-        system_prompt = self._build_system_prompt(model)
+        system_prompt = self._build_system_prompt(model, user_text=text)
 
         self._chat_history.add("user", text)
 
