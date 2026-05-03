@@ -4,7 +4,7 @@ import os
 import sys
 import tkinter as tk
 import threading
-from pathlib import Path  
+from pathlib import Path
 
 from loading_overlay import LoadingOverlay
 from core.controller import AkoController
@@ -13,6 +13,26 @@ from core.controller import AkoController
 def resource_path(rel_path: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base, rel_path)
+
+
+def _rounded_rect(canvas: tk.Canvas, x1, y1, x2, y2, radius=18, **kwargs):
+    """Canvas에 둥근 사각형을 그리는 helper."""
+    radius = max(0, min(radius, int((x2 - x1) / 2), int((y2 - y1) / 2)))
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
 
 
 class RoundIconButton(tk.Canvas):
@@ -100,6 +120,127 @@ class RoundIconButton(tk.Canvas):
             self.command()
 
 
+class ChatBubble(tk.Frame):
+    """인스타 DM 느낌의 좌우 말풍선."""
+
+    def __init__(
+        self,
+        master,
+        role: str,
+        text: str,
+        colors: dict[str, str],
+        max_width: int,
+    ):
+        super().__init__(master, bg=colors["chat_bg"])
+
+        self.role = role
+        self.colors = colors
+        self.max_width = max_width
+
+        if role == "user":
+            self.bubble_bg = colors["bubble_user"]
+            self.text_fg = colors["bubble_user_text"]
+            self.anchor = "e"
+            self.side = "right"
+            self.name = ""
+        elif role == "assistant":
+            self.bubble_bg = colors["bubble_assistant"]
+            self.text_fg = colors["bubble_assistant_text"]
+            self.anchor = "w"
+            self.side = "left"
+            self.name = "아코"
+        else:
+            self.bubble_bg = colors["bubble_system"]
+            self.text_fg = colors["bubble_system_text"]
+            self.anchor = "center"
+            self.side = "top"
+            self.name = ""
+
+        self.canvas = tk.Canvas(
+            self,
+            bg=colors["chat_bg"],
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+        )
+        self.canvas.pack(anchor=self.anchor if role != "system" else "center")
+
+        self.text_id: int | None = None
+        self.bg_id: int | None = None
+        self.name_id: int | None = None
+        self._text = ""
+
+        self.set_text(text)
+
+    def set_text(self, text: str):
+        self._text = text or " "
+        self._redraw()
+
+    def set_max_width(self, max_width: int):
+        self.max_width = max(220, max_width)
+        self._redraw()
+
+    def _redraw(self):
+        self.canvas.delete("all")
+
+        padding_x = 15
+        padding_y = 10
+        name_gap = 4
+        radius = 18
+
+        wrap_width = max(220, self.max_width - padding_x * 2)
+
+        y = padding_y
+
+        if self.name:
+            self.name_id = self.canvas.create_text(
+                padding_x,
+                y,
+                text=self.name,
+                fill=self.colors["muted"],
+                font=("Segoe UI Semibold", 9),
+                anchor="nw",
+                width=wrap_width,
+            )
+            name_bbox = self.canvas.bbox(self.name_id) or (0, 0, 0, 0)
+            y = name_bbox[3] + name_gap
+
+        self.text_id = self.canvas.create_text(
+            padding_x,
+            y,
+            text=self._text,
+            fill=self.text_fg,
+            font=("Segoe UI", 10),
+            anchor="nw",
+            width=wrap_width,
+        )
+
+        text_bbox = self.canvas.bbox(self.text_id) or (0, 0, 80, 24)
+        content_w = text_bbox[2] - text_bbox[0]
+        content_h = text_bbox[3] - padding_y
+
+        bubble_w = min(self.max_width, max(54, content_w + padding_x * 2))
+        bubble_h = max(38, content_h + padding_y)
+
+        # 이름이 있으면 말풍선 안 상단에 같이 들어가게 여유 계산
+        if self.name:
+            bubble_h = max(54, text_bbox[3] + padding_y)
+
+        self.bg_id = _rounded_rect(
+            self.canvas,
+            0,
+            0,
+            bubble_w,
+            bubble_h,
+            radius=radius,
+            fill=self.bubble_bg,
+            outline="",
+        )
+        self.canvas.tag_lower(self.bg_id)
+
+        self.canvas.configure(width=bubble_w, height=bubble_h)
+
+
 class AkoGUI(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -111,8 +252,8 @@ class AkoGUI(tk.Tk):
             pass
 
         self.title("Ako")
-        self.geometry("940x680")
-        self.minsize(860, 600)
+        self.geometry("940x740")
+        self.minsize(860, 680)
         self.configure(bg="#090b14")
 
         self.colors = {
@@ -126,7 +267,13 @@ class AkoGUI(tk.Tk):
             "accent_soft": "#241f45",
             "entry_bg": "#23252d",
             "entry_fg": "#f3f4ff",
-            "log_bg": "#0c0f1b",
+            "chat_bg": "#0c0f1b",
+            "bubble_user": "#ab8dff",
+            "bubble_user_text": "#0b0b14",
+            "bubble_assistant": "#1b2035",
+            "bubble_assistant_text": "#f3f4ff",
+            "bubble_system": "#111728",
+            "bubble_system_text": "#a7adc9",
             "chip_on_bg": "#241f45",
             "chip_on_fg": "#ab8dff",
             "chip_off_bg": "#151a2b",
@@ -139,16 +286,18 @@ class AkoGUI(tk.Tk):
         self._placeholder_text = "메시지 입력..."
         self._placeholder_active = True
 
+        self._stream_bubble: ChatBubble | None = None
+        self._stream_text = ""
+        self._bubble_widgets: list[ChatBubble] = []
+
         self._build_ui()
         self._refresh_ui()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-
         self.deiconify()
         self.update_idletasks()
         self._start_loading_overlay()
-
 
     def _start_loading_overlay(self):
         self.loading_overlay = LoadingOverlay(
@@ -164,52 +313,31 @@ class AkoGUI(tk.Tk):
         self.loading_overlay = None
 
     def _build_ui(self):
-        root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=18)
+        root = tk.Frame(self, bg=self.colors["bg"], padx=18, pady=16)
         root.pack(fill="both", expand=True)
 
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(0, weight=0)
+        root.grid_rowconfigure(1, weight=1)
+        root.grid_rowconfigure(2, weight=0)
+
         header = tk.Frame(root, bg=self.colors["bg"])
-        header.pack(fill="x")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        header.grid_columnconfigure(0, weight=1)
 
         header_left = tk.Frame(header, bg=self.colors["bg"])
-        header_left.pack(side="left", fill="x", expand=True)
+        header_left.grid(row=0, column=0, sticky="w")
 
         tk.Label(
             header_left,
             text="AKO",
             bg=self.colors["bg"],
             fg=self.colors["accent"],
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Semibold", 11),
         ).pack(anchor="w")
 
-        tk.Label(
-            header_left,
-            text="대화 인터페이스",
-            bg=self.colors["bg"],
-            fg=self.colors["text"],
-            font=("Segoe UI Semibold", 22),
-        ).pack(anchor="w", pady=(4, 0))
-
-        tk.Label(
-            header_left,
-            text="명령도 실행하고 일상대화도 가능한 채팅 화면",
-            bg=self.colors["bg"],
-            fg=self.colors["muted"],
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(6, 0))
-
         right = tk.Frame(header, bg=self.colors["bg"])
-        right.pack(side="right")
-
-        self.power_chip = tk.Label(
-            right,
-            text="꺼짐",
-            bg=self.colors["chip_off_bg"],
-            fg=self.colors["chip_off_fg"],
-            font=("Segoe UI Semibold", 10),
-            padx=16,
-            pady=8,
-        )
-        self.power_chip.pack(side="right")
+        right.grid(row=0, column=1, sticky="e")
 
         self.power_btn = tk.Button(
             right,
@@ -227,7 +355,18 @@ class AkoGUI(tk.Tk):
             cursor="hand2",
             highlightthickness=0,
         )
-        self.power_btn.pack(side="right", padx=(0, 10))
+        self.power_btn.pack(side="left", padx=(0, 10))
+
+        self.power_chip = tk.Label(
+            right,
+            text="꺼짐",
+            bg=self.colors["chip_off_bg"],
+            fg=self.colors["chip_off_fg"],
+            font=("Segoe UI Semibold", 10),
+            padx=16,
+            pady=8,
+        )
+        self.power_chip.pack(side="left")
 
         main_panel = tk.Frame(
             root,
@@ -235,13 +374,17 @@ class AkoGUI(tk.Tk):
             highlightbackground=self.colors["border"],
             highlightthickness=1,
             bd=0,
-            padx=18,
-            pady=18,
+            padx=14,
+            pady=14,
         )
-        main_panel.pack(fill="both", expand=True, pady=(16, 0))
+        main_panel.grid(row=1, column=0, sticky="nsew")
+        main_panel.grid_columnconfigure(0, weight=1)
+        main_panel.grid_rowconfigure(0, weight=0)
+        main_panel.grid_rowconfigure(1, weight=1)
 
         top_info = tk.Frame(main_panel, bg=self.colors["panel"])
-        top_info.pack(fill="x", pady=(0, 12))
+        top_info.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        top_info.grid_columnconfigure(0, weight=1)
 
         self.status_line = tk.Label(
             top_info,
@@ -251,7 +394,7 @@ class AkoGUI(tk.Tk):
             font=("Segoe UI", 10),
             anchor="w",
         )
-        self.status_line.pack(side="left", fill="x", expand=True)
+        self.status_line.grid(row=0, column=0, sticky="w")
 
         self.clear_btn = tk.Button(
             top_info,
@@ -269,35 +412,44 @@ class AkoGUI(tk.Tk):
             cursor="hand2",
             highlightthickness=0,
         )
-        self.clear_btn.pack(side="right")
+        self.clear_btn.grid(row=0, column=1, sticky="e")
 
-        log_wrap = tk.Frame(
-            main_panel,
-            bg=self.colors["log_bg"],
-            highlightbackground=self.colors["border"],
-            highlightthickness=1,
-            bd=0,
-        )
-        log_wrap.pack(fill="both", expand=True)
+        chat_wrap = tk.Frame(main_panel, bg=self.colors["chat_bg"], bd=0)
+        chat_wrap.grid(row=1, column=0, sticky="nsew")
+        chat_wrap.grid_columnconfigure(0, weight=1)
+        chat_wrap.grid_rowconfigure(0, weight=1)
 
-        self.log_text = tk.Text(
-            log_wrap,
-            wrap="word",
-            state="disabled",
-            bg=self.colors["log_bg"],
-            fg=self.colors["text"],
-            insertbackground=self.colors["accent"],
-            selectbackground=self.colors["accent_soft"],
-            relief="flat",
+        self.chat_canvas = tk.Canvas(
+            chat_wrap,
+            bg=self.colors["chat_bg"],
             bd=0,
-            padx=16,
-            pady=16,
-            font=("Consolas", 10),
+            highlightthickness=0,
         )
-        self.log_text.pack(fill="both", expand=True)
+        self.chat_canvas.grid(row=0, column=0, sticky="nsew")
+
+        self.chat_scrollbar = tk.Scrollbar(
+            chat_wrap,
+            orient="vertical",
+            command=self.chat_canvas.yview,
+        )
+        self.chat_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.chat_canvas.configure(yscrollcommand=self.chat_scrollbar.set)
+
+        self.chat_frame = tk.Frame(self.chat_canvas, bg=self.colors["chat_bg"])
+        self.chat_window = self.chat_canvas.create_window(
+            (0, 0),
+            window=self.chat_frame,
+            anchor="nw",
+        )
+
+        self.chat_frame.bind("<Configure>", self._on_chat_frame_configure)
+        self.chat_canvas.bind("<Configure>", self._on_chat_canvas_configure)
+        self.chat_canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.chat_frame.bind("<MouseWheel>", self._on_mousewheel)
 
         bottom = tk.Frame(root, bg=self.colors["bg"])
-        bottom.pack(fill="x", pady=(14, 0))
+        bottom.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        bottom.grid_columnconfigure(0, weight=1)
 
         input_shell = tk.Frame(
             bottom,
@@ -306,9 +458,10 @@ class AkoGUI(tk.Tk):
             highlightthickness=1,
             bd=0,
             padx=14,
-            pady=10,
+            pady=8,
         )
-        input_shell.pack(fill="x")
+        input_shell.grid(row=0, column=0, sticky="ew")
+        input_shell.grid_columnconfigure(0, weight=1)
 
         self.msg_entry = tk.Entry(
             input_shell,
@@ -319,7 +472,7 @@ class AkoGUI(tk.Tk):
             bd=0,
             font=("Segoe UI", 12),
         )
-        self.msg_entry.pack(side="left", fill="x", expand=True, padx=(2, 10), ipady=6)
+        self.msg_entry.grid(row=0, column=0, sticky="ew", padx=(2, 10), ipady=8)
         self.msg_entry.bind("<Return>", lambda e: self._send_message())
         self.msg_entry.bind("<FocusIn>", self._on_entry_focus_in)
         self.msg_entry.bind("<FocusOut>", self._on_entry_focus_out)
@@ -329,13 +482,95 @@ class AkoGUI(tk.Tk):
         self.send_btn = RoundIconButton(
             input_shell,
             command=self._send_message,
-            size=40,
+            size=42,
             bg="#f2f4ff",
             fg="#0c0f1a",
             hover_bg="#ffffff",
             disabled_bg="#666b88",
         )
-        self.send_btn.pack(side="right")
+        self.send_btn.grid(row=0, column=1, sticky="e")
+
+    # ── DM 채팅 UI ────────────────────────────────────────────────────────
+
+    def _on_chat_frame_configure(self, _event=None):
+        self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+
+    def _on_chat_canvas_configure(self, event):
+        self.chat_canvas.itemconfigure(self.chat_window, width=event.width)
+        self._update_bubble_widths()
+
+    def _on_mousewheel(self, event):
+        self.chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _scroll_to_bottom(self):
+        self.update_idletasks()
+        self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+        self.chat_canvas.yview_moveto(1.0)
+
+    def _bubble_max_width(self) -> int:
+        width = max(480, self.chat_canvas.winfo_width())
+        return max(260, int(width * 0.62))
+
+    def _update_bubble_widths(self):
+        max_width = self._bubble_max_width()
+        for bubble in self._bubble_widgets:
+            try:
+                bubble.set_max_width(max_width)
+            except Exception:
+                pass
+
+    def _add_message(self, role: str, text: str) -> ChatBubble:
+        row = tk.Frame(self.chat_frame, bg=self.colors["chat_bg"])
+        row.pack(fill="x", padx=14, pady=(8, 3))
+
+        bubble = ChatBubble(
+            row,
+            role=role,
+            text=text,
+            colors=self.colors,
+            max_width=self._bubble_max_width(),
+        )
+        self._bubble_widgets.append(bubble)
+
+        if role == "user":
+            bubble.pack(anchor="e")
+        elif role == "assistant":
+            bubble.pack(anchor="w")
+        else:
+            bubble.pack(anchor="center", pady=(2, 2))
+
+        self._scroll_to_bottom()
+        return bubble
+
+    def _append_log(self, line: str):
+        """컨트롤러 로그를 DM 스타일 메시지로 변환."""
+        raw = (line or "").strip()
+        if not raw:
+            return
+
+        content = raw
+        if content.startswith("[") and "] " in content:
+            content = content.split("] ", 1)[1].strip()
+
+        if content.startswith("[나]"):
+            self._add_message("user", content.replace("[나]", "", 1).strip())
+        elif content.startswith("[Ako]"):
+            self._add_message("assistant", content.replace("[Ako]", "", 1).strip())
+        elif content.startswith("[아코]"):
+            self._add_message("assistant", content.replace("[아코]", "", 1).strip())
+        else:
+            self._add_message("system", content)
+
+    def _clear_log(self):
+        for child in self.chat_frame.winfo_children():
+            child.destroy()
+        self._bubble_widgets.clear()
+        self._stream_bubble = None
+        self._stream_text = ""
+        if hasattr(self.controller, "clear_chat_history"):
+            self.controller.clear_chat_history()
+
+    # ── 입력창 ───────────────────────────────────────────────────────────
 
     def _set_placeholder(self):
         self.msg_entry.delete(0, "end")
@@ -356,19 +591,6 @@ class AkoGUI(tk.Tk):
         if not self.msg_entry.get().strip():
             self._set_placeholder()
 
-    def _append_log(self, line: str):
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", line + "\n")
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
-
-    def _clear_log(self):
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
-        if hasattr(self.controller, "clear_chat_history"):
-            self.controller.clear_chat_history()
-
     def _toggle_power(self):
         self.controller.toggle_power()
         self._refresh_ui()
@@ -382,7 +604,7 @@ class AkoGUI(tk.Tk):
         self.msg_entry.configure(fg=self.colors["entry_fg"])
         self._placeholder_active = False
 
-        self._append_log(f"[나] {text}")
+        self._add_message("user", text)
         self.status_line.configure(text="메시지 처리 중...")
 
         self._handle_message(text)
@@ -405,16 +627,14 @@ class AkoGUI(tk.Tk):
                 handled = any(k in text for k in command_hints)
 
             if handled:
-                # 명령어: 기존 방식 유지 (이미 빠름)
                 self.controller.handle_text_command(text)
                 self.status_line.configure(text="명령 실행 완료")
                 return
 
-            # 일반 대화: 비동기 스트리밍
             self._start_chat_async(text)
 
         except Exception as e:
-            self._append_log(f"[오류] {e}")
+            self._add_message("system", f"오류: {e}")
             self.status_line.configure(text="오류 발생")
             self._set_input_enabled(True)
 
@@ -438,11 +658,8 @@ class AkoGUI(tk.Tk):
         self.status_line.configure(text="[아코] 생각 중...")
         self._set_input_enabled(False)
 
-        # 로그창에 "[아코] " 접두어 미리 삽입해두고 토큰을 이어 붙일 준비
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", "[아코] ")
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
+        self._stream_text = ""
+        self._stream_bubble = self._add_message("assistant", "")
 
         threading.Thread(
             target=self._chat_stream_worker,
@@ -455,7 +672,6 @@ class AkoGUI(tk.Tk):
         """백그라운드 스레드: 토큰을 받을 때마다 GUI 업데이트 예약."""
         try:
             for chunk in self.controller.chat_stream(text):
-                # after(0, ...) → tkinter 메인 루프에 안전하게 콜백 전달
                 self.after(0, self._on_stream_chunk, chunk)
         except Exception as e:
             self.after(0, self._on_stream_error, str(e))
@@ -463,28 +679,29 @@ class AkoGUI(tk.Tk):
             self.after(0, self._on_stream_done)
 
     def _on_stream_chunk(self, chunk: str):
-        """메인 스레드: 토큰 청크를 로그창에 실시간 추가."""
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", chunk)
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
+        """메인 스레드: 아코 말풍선을 실시간 업데이트."""
+        if self._stream_bubble is None:
+            self._stream_bubble = self._add_message("assistant", "")
+
+        self._stream_text += chunk
+        self._stream_bubble.set_text(self._stream_text)
+        self._scroll_to_bottom()
 
     def _on_stream_done(self):
         """메인 스레드: 스트리밍 완료 후 정리."""
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", "\n")
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
+        if self._stream_bubble is not None and not self._stream_text.strip():
+            self._stream_bubble.set_text("응답이 비어 있어요.")
+
+        self._stream_bubble = None
+        self._stream_text = ""
+
         self.status_line.configure(text="대기 중")
         self._set_input_enabled(True)
         self.msg_entry.focus_set()
 
     def _on_stream_error(self, error: str):
         """메인 스레드: 스트림 중 에러 처리."""
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"\n[오류] {error}\n")
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
+        self._add_message("system", f"오류: {error}")
         self.status_line.configure(text="오류 발생")
         self._set_input_enabled(True)
 
