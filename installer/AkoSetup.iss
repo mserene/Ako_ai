@@ -1,4 +1,4 @@
-#define MyAppName "Ako"
+﻿#define MyAppName "Ako"
 #define MyAppVersion "0.1.1"
 #define MyAppPublisher "mserene"
 #define MyAppExeName "Ako-ai.exe"
@@ -38,5 +38,4 @@ Name: "{autoprograms}\Ako"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\
 Name: "{autodesktop}\Ako"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\{#MyAppLauncherName}"""; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\bootstrap_runtime.bat"; Parameters: "--no-pause"; Flags: runhidden waituntilterminated
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\{#MyAppLauncherName}"""; Description: "Ako 실행하기"; Flags: nowait postinstall skipifsilent
