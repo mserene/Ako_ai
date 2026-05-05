@@ -26,7 +26,7 @@ set "PIP_CACHE_DIR=%CD%\.build_runtime\pip_cache"
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 set "PIP_FLAGS=--disable-pip-version-check --no-cache-dir"
 
-echo [INFO] Starting Ako-ai developer build. ^(v7 pip-cache permission fix^)
+echo [INFO] Starting Ako-ai developer build. ^(v8 runtime-file preflight + pip-cache fix^)
 echo [INFO] This script builds dist\Ako-ai with PyInstaller.
 echo [INFO] End users should run AkoSetup.exe, not this file.
 echo.
@@ -84,7 +84,26 @@ if exist "requirements.txt" (
 )
 
 REM ============================================================
-REM 3) Clean output with backup.
+REM 3) Preflight: runtime files must exist before building.
+REM    The installer copies dist\Ako-ai, so these files must be copied into dist.
+REM ============================================================
+echo.
+echo [INFO] Checking runtime bootstrap source files...
+if not exist "bootstrap_runtime.bat" (
+  echo [ERROR] bootstrap_runtime.bat not found next to this build script.
+  echo [ERROR] Put bootstrap_runtime.bat in the project root: %CD%
+  echo [ERROR] Then run this build script again.
+  goto :fail
+)
+if not exist "Ako-ai_launcher.bat" (
+  echo [ERROR] Ako-ai_launcher.bat not found next to this build script.
+  echo [ERROR] Put Ako-ai_launcher.bat in the project root: %CD%
+  echo [ERROR] Then run this build script again.
+  goto :fail
+)
+
+REM ============================================================
+REM 4) Clean output with backup.
 REM ============================================================
 echo.
 if exist "%APP_BACKUP%" rmdir /s /q "%APP_BACKUP%"
@@ -96,7 +115,7 @@ if exist "%APP_DIR%" (
 if exist "build" rmdir /s /q "build"
 
 REM ============================================================
-REM 4) Build using PyInstaller spec.
+REM 5) Build using PyInstaller spec.
 REM ============================================================
 if not exist "Ako-ai.spec" (
   echo [ERROR] Ako-ai.spec not found.
@@ -114,7 +133,7 @@ if not exist "%APP_DIR%\Ako-ai.exe" (
 )
 
 REM ============================================================
-REM 5) Copy runtime bootstrap files into installer payload.
+REM 6) Copy runtime bootstrap files into installer payload.
 REM ============================================================
 echo [INFO] Copying runtime bootstrap files into dist...
 if exist "bootstrap_runtime.bat" (
