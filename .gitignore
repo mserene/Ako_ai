@@ -1,6 +1,8 @@
 # 빌드 산출물
 dist/
 build/
+.build/
+.build_runtime/
 *.spec.bak
 
 # 가상환경

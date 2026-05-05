@@ -19,10 +19,23 @@ set "BUILD_PY=%BUILD_PY_DIR%\python.exe"
 set "GET_PIP_LOCAL=installer_assets\get-pip.py"
 set "GET_PIP_CACHE=.build_runtime\get-pip.py"
 
-echo [INFO] Starting Ako-ai developer build. ^(v5 embedded-python fallback reset^)
+REM Keep pip/cache/temp files inside the project folder.
+REM This avoids Permission denied errors from broken %LOCALAPPDATA%\pip caches.
+set "BUILD_TMP=%CD%\.build_runtime\tmp"
+set "PIP_CACHE_DIR=%CD%\.build_runtime\pip_cache"
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+set "PIP_FLAGS=--disable-pip-version-check --no-cache-dir"
+
+echo [INFO] Starting Ako-ai developer build. ^(v7 pip-cache permission fix^)
 echo [INFO] This script builds dist\Ako-ai with PyInstaller.
 echo [INFO] End users should run AkoSetup.exe, not this file.
 echo.
+
+if not exist ".build_runtime" mkdir ".build_runtime" >nul 2>&1
+if not exist "%BUILD_TMP%" mkdir "%BUILD_TMP%" >nul 2>&1
+if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%" >nul 2>&1
+set "TMP=%BUILD_TMP%"
+set "TEMP=%BUILD_TMP%"
 
 REM ============================================================
 REM 1) Prefer real system Python 3.12.
@@ -48,6 +61,8 @@ set "USE_EMBED_PY=1"
 
 :python_ready
 echo [INFO] Build Python ready: %PY_RUN%
+echo [INFO] Pip cache dir: %PIP_CACHE_DIR%
+echo [INFO] Temp dir: %BUILD_TMP%
 "%PY_RUN%" -V
 if errorlevel 1 goto :fail
 
@@ -57,12 +72,12 @@ REM    Ollama/model are runtime bootstrap responsibilities, not build requiremen
 REM ============================================================
 echo.
 echo [INFO] Installing/updating build tools...
-"%PY_RUN%" -m pip install -U pip setuptools wheel pyinstaller
+"%PY_RUN%" -m pip install %PIP_FLAGS% -U pip setuptools wheel pyinstaller
 if errorlevel 1 goto :fail
 
 if exist "requirements.txt" (
   echo [INFO] Installing project dependencies from requirements.txt...
-  "%PY_RUN%" -m pip install -r requirements.txt
+  "%PY_RUN%" -m pip install %PIP_FLAGS% -r requirements.txt
   if errorlevel 1 goto :fail
 ) else (
   echo [WARN] requirements.txt not found. Skipping project dependency install.
@@ -182,19 +197,27 @@ for %%C in (python python3) do (
 exit /b 0
 
 :is_full_python_312
-set "PY_MINOR="
-for /f "usebackq delims=" %%V in (`"%~1" -c "import sys, venv, ensurepip; print(str(sys.version_info[0])+'.'+str(sys.version_info[1]))" 2^>nul`) do (
-  set "PY_MINOR=%%V"
-)
-if "%PY_MINOR%"=="3.12" exit /b 0
+REM Robust version check for a normal/full Python.
+REM Do not parse localized/odd --version output; ask Python directly.
+"%~1" -c "import sys, venv, ensurepip; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>&1
+if not errorlevel 1 exit /b 0
 exit /b 1
 
 :is_any_python_312
-set "PY_MINOR="
-for /f "usebackq delims=" %%V in (`"%~1" -c "import sys; print(str(sys.version_info[0])+'.'+str(sys.version_info[1]))" 2^>nul`) do (
-  set "PY_MINOR=%%V"
+REM Robust version check for embedded Python.
+REM First use sys.version_info. If -c is blocked for any weird embedded-state reason,
+REM fall back to checking `python -V` text.
+"%~1" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>&1
+if not errorlevel 1 exit /b 0
+
+set "PYVER_TMP=%TEMP%\ako_pyver_%RANDOM%_%RANDOM%.txt"
+"%~1" -V > "%PYVER_TMP%" 2>&1
+findstr /B /C:"Python 3.12." "%PYVER_TMP%" >nul 2>&1
+if not errorlevel 1 (
+  del "%PYVER_TMP%" >nul 2>&1
+  exit /b 0
 )
-if "%PY_MINOR%"=="3.12" exit /b 0
+del "%PYVER_TMP%" >nul 2>&1
 exit /b 1
 
 :prepare_venv
@@ -287,7 +310,7 @@ echo [INFO] pip not found in embedded Python. Preparing pip...
 
 if exist "%GET_PIP_LOCAL%" (
   echo [INFO] Using bundled get-pip.py: %GET_PIP_LOCAL%
-  "%BUILD_PY%" "%GET_PIP_LOCAL%"
+  "%BUILD_PY%" "%GET_PIP_LOCAL%" %PIP_FLAGS%
   if errorlevel 1 (
     echo [ERROR] get-pip.py failed.
     exit /b 1
@@ -306,7 +329,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-"%BUILD_PY%" "%GET_PIP_CACHE%"
+"%BUILD_PY%" "%GET_PIP_CACHE%" %PIP_FLAGS%
 if errorlevel 1 (
   echo [ERROR] get-pip.py failed.
   exit /b 1
