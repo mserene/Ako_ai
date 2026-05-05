@@ -33,8 +33,8 @@ Source: "..\dist\Ako-ai\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Source: "..\installer_assets\{#PythonEmbedZip}"; DestDir: "{app}\runtime_assets"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Ako"; Filename: "{app}\{#MyAppLauncherName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\Ako"; Filename: "{app}\{#MyAppLauncherName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Ako"; Filename: "{app}\Ako-ai_launcher.bat"; WorkingDir: "{app}"
+Name: "{autodesktop}\Ako"; Filename: "{app}\Ako-ai_launcher.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\bootstrap_runtime.bat"; Parameters: "--no-pause"; Flags: waituntilterminated
