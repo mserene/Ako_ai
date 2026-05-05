@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Ako"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "mserene"
 #define MyAppExeName "Ako-ai.exe"
 #define MyAppLauncherName "Ako-ai_launcher.vbs"
@@ -30,6 +30,7 @@ Name: "desktopicon"; Description: "바탕화면 바로가기 만들기"; GroupDe
 
 [Files]
 Source: "..\dist\Ako-ai\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\bootstrap_runtime.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Ako-ai_launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\installer_assets\{#PythonEmbedZip}"; DestDir: "{app}\runtime_assets"; Flags: ignoreversion
 

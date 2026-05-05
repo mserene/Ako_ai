@@ -2,12 +2,12 @@
 setlocal EnableExtensions DisableDelayedExpansion
 
 rem ============================================================
-rem Ako runtime bootstrap v10
-rem - First-run friendly: creates bootstrap_ok.flag on success.
-rem - ASCII-only BAT to avoid CMD encoding/parsing issues.
-rem - Uses bundled Python embed zip first.
-rem - Prepares pip/packages for runtime.
-rem - Checks Ollama and model.
+rem Ako runtime bootstrap v12
+rem - First-run visible through VBS launcher.
+rem - DOES NOT pip-install requirements.txt at user runtime.
+rem   Reason: Ako-ai.exe is already built by PyInstaller.
+rem - Prepares bundled Python only as a local runtime fallback.
+rem - Checks/installs Ollama and pulls the model.
 rem ============================================================
 
 set "APP_NAME=Ako-ai"
@@ -16,35 +16,29 @@ set "SCRIPT_DIR=%~dp0"
 set "RUNTIME_DIR=%LOCALAPPDATA%\Ako-ai\runtime"
 set "PY_DIR=%RUNTIME_DIR%\python312"
 set "PY_EXE=%PY_DIR%\python.exe"
-set "PIP_CACHE_DIR=%RUNTIME_DIR%\pip_cache"
 set "TMP=%RUNTIME_DIR%\tmp"
 set "TEMP=%RUNTIME_DIR%\tmp"
 set "PY_ZIP_NAME=python-3.12.10-embed-amd64.zip"
 set "PY_ZIP=%SCRIPT_DIR%runtime_assets\%PY_ZIP_NAME%"
-set "GET_PIP_ASSET=%SCRIPT_DIR%runtime_assets\get-pip.py"
-set "GET_PIP=%RUNTIME_DIR%\get-pip.py"
 set "LOG=%RUNTIME_DIR%\bootstrap_runtime.log"
 set "FLAG=%RUNTIME_DIR%\bootstrap_ok.flag"
+set "OLLAMA_EXE="
 set "NO_PAUSE=0"
 
 if /I "%~1"=="--no-pause" set "NO_PAUSE=1"
 
 if not exist "%RUNTIME_DIR%" mkdir "%RUNTIME_DIR%" >nul 2>nul
 if not exist "%TMP%" mkdir "%TMP%" >nul 2>nul
-if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%" >nul 2>nul
 
-call :log INFO "Starting Ako runtime bootstrap v10"
+call :log INFO "Starting Ako runtime bootstrap v12"
 
 call :prepare_python
 if errorlevel 1 goto fail
 
-call :prepare_pip
-if errorlevel 1 goto fail
-
-call :install_requirements
-if errorlevel 1 goto fail
-
 call :check_ollama
+if errorlevel 1 goto fail
+
+call :ensure_ollama_server
 if errorlevel 1 goto fail
 
 call :check_model
@@ -56,6 +50,7 @@ exit /b 0
 
 :prepare_python
 call :log INFO "Checking bundled Python"
+
 if exist "%PY_EXE%" (
     "%PY_EXE%" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
     if not errorlevel 1 (
@@ -67,8 +62,9 @@ if exist "%PY_EXE%" (
 )
 
 if not exist "%PY_ZIP%" (
-    call :log ERROR "Bundled Python zip not found: %PY_ZIP%"
-    exit /b 1
+    call :log WARN "Bundled Python zip not found. Skipping bundled Python setup."
+    call :log WARN "%PY_ZIP%"
+    exit /b 0
 )
 
 call :log INFO "Extracting bundled Python zip"
@@ -94,78 +90,86 @@ if errorlevel 1 (
 call :log INFO "Bundled Python ready"
 exit /b 0
 
-:prepare_pip
-call :log INFO "Checking pip"
-"%PY_EXE%" -m pip --version >nul 2>nul
-if not errorlevel 1 (
-    call :log INFO "pip OK"
-    exit /b 0
-)
-
-call :log INFO "Installing pip"
-
-if exist "%GET_PIP_ASSET%" (
-    copy /Y "%GET_PIP_ASSET%" "%GET_PIP%" >nul 2>nul
-) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%GET_PIP%'" >>"%LOG%" 2>&1
-)
-
-if not exist "%GET_PIP%" (
-    call :log ERROR "get-pip.py not found and could not be downloaded"
-    exit /b 1
-)
-
-"%PY_EXE%" "%GET_PIP%" --no-warn-script-location --no-cache-dir >>"%LOG%" 2>&1
-if errorlevel 1 (
-    call :log ERROR "pip install failed"
-    exit /b 1
-)
-
-"%PY_EXE%" -m pip --version >nul 2>nul
-if errorlevel 1 (
-    call :log ERROR "pip still not available"
-    exit /b 1
-)
-
-call :log INFO "pip ready"
-exit /b 0
-
-:install_requirements
-if not exist "%SCRIPT_DIR%requirements.txt" (
-    call :log WARN "requirements.txt not found. Skipping package install."
-    exit /b 0
-)
-
-call :log INFO "Installing Python requirements"
-"%PY_EXE%" -m pip install --no-cache-dir --cache-dir "%PIP_CACHE_DIR%" -r "%SCRIPT_DIR%requirements.txt" >>"%LOG%" 2>&1
-if errorlevel 1 (
-    call :log ERROR "requirements install failed"
-    exit /b 1
-)
-
-call :log INFO "requirements installed"
-exit /b 0
-
 :check_ollama
 call :log INFO "Checking Ollama"
-where ollama >nul 2>nul
-if not errorlevel 1 (
-    call :log INFO "Ollama found in PATH"
-    exit /b 0
+
+for /f "delims=" %%P in ('where ollama 2^>nul') do (
+    set "OLLAMA_EXE=%%P"
+    goto ollama_found
 )
 
 if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+    set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
     set "PATH=%LOCALAPPDATA%\Programs\Ollama;%PATH%"
-    call :log INFO "Ollama found in LocalAppData"
+    goto ollama_found
+)
+
+call :log WARN "Ollama not found. Trying winget install."
+winget install -e --id Ollama.Ollama --accept-package-agreements --accept-source-agreements >>"%LOG%" 2>&1
+
+for /f "delims=" %%P in ('where ollama 2^>nul') do (
+    set "OLLAMA_EXE=%%P"
+    goto ollama_found
+)
+
+if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+    set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+    set "PATH=%LOCALAPPDATA%\Programs\Ollama;%PATH%"
+    goto ollama_found
+)
+
+call :log WARN "winget could not install Ollama. Trying direct download."
+set "OLLAMA_INSTALLER=%RUNTIME_DIR%\OllamaSetup.exe"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile '%OLLAMA_INSTALLER%'" >>"%LOG%" 2>&1
+
+if exist "%OLLAMA_INSTALLER%" (
+    call :log INFO "Opening Ollama installer. Complete the installer, then this window will continue."
+    start /wait "" "%OLLAMA_INSTALLER%"
+)
+
+for /f "delims=" %%P in ('where ollama 2^>nul') do (
+    set "OLLAMA_EXE=%%P"
+    goto ollama_found
+)
+
+if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+    set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+    set "PATH=%LOCALAPPDATA%\Programs\Ollama;%PATH%"
+    goto ollama_found
+)
+
+call :log ERROR "Ollama is still not available."
+call :log ERROR "Install Ollama manually from https://ollama.com/download and run Ako again."
+exit /b 1
+
+:ollama_found
+call :log INFO "Ollama found: %OLLAMA_EXE%"
+exit /b 0
+
+:ensure_ollama_server
+call :log INFO "Checking Ollama server"
+ollama list >nul 2>nul
+if not errorlevel 1 (
+    call :log INFO "Ollama server OK"
     exit /b 0
 )
 
-call :log ERROR "Ollama not found"
-call :log ERROR "Install Ollama manually from https://ollama.com/download"
-exit /b 1
+call :log WARN "Ollama server not responding. Starting ollama serve in background."
+start "Ako Ollama Server" /min ollama serve
+timeout /t 5 /nobreak >nul
+
+ollama list >nul 2>nul
+if errorlevel 1 (
+    call :log ERROR "Ollama server did not respond."
+    exit /b 1
+)
+
+call :log INFO "Ollama server started"
+exit /b 0
 
 :check_model
 call :log INFO "Checking Ollama model: %MODEL_NAME%"
+
 ollama list | findstr /I /C:"%MODEL_NAME%" >nul 2>nul
 if not errorlevel 1 (
     call :log INFO "Model already exists"
@@ -173,6 +177,8 @@ if not errorlevel 1 (
 )
 
 call :log INFO "Pulling Ollama model: %MODEL_NAME%"
+call :log INFO "This can take a long time on first run."
+
 ollama pull "%MODEL_NAME%" >>"%LOG%" 2>&1
 if errorlevel 1 (
     call :log ERROR "ollama pull failed: %MODEL_NAME%"
