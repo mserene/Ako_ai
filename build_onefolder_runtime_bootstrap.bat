@@ -19,7 +19,7 @@ set "BUILD_PY=%BUILD_PY_DIR%\python.exe"
 set "GET_PIP_LOCAL=installer_assets\get-pip.py"
 set "GET_PIP_CACHE=.build_runtime\get-pip.py"
 
-echo [INFO] Starting Ako-ai developer build. ^(v4 embedded-python fallback^)
+echo [INFO] Starting Ako-ai developer build. ^(v5 embedded-python fallback reset^)
 echo [INFO] This script builds dist\Ako-ai with PyInstaller.
 echo [INFO] End users should run AkoSetup.exe, not this file.
 echo.
@@ -224,19 +224,21 @@ if not exist "%PY_EMBED_ZIP%" (
   exit /b 1
 )
 
-if not exist "%BUILD_PY%" (
-  echo [INFO] Extracting bundled Python zip for build use...
-  if exist "%BUILD_PY_DIR%" rmdir /s /q "%BUILD_PY_DIR%"
-  mkdir "%BUILD_PY_DIR%" >nul 2>&1
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '%CD%\%PY_EMBED_ZIP%' -DestinationPath '%CD%\%BUILD_PY_DIR%' -Force"
-  if errorlevel 1 (
-    echo [ERROR] Failed to extract bundled Python zip.
-    exit /b 1
-  )
+REM Always refresh the embedded build Python folder.
+REM A previous failed/partial extraction can leave .build_runtime\python312 in a broken state,
+REM so reusing it may falsely report "not Python 3.12".
+echo [INFO] Refreshing bundled Python build runtime...
+if exist "%BUILD_PY_DIR%" rmdir /s /q "%BUILD_PY_DIR%"
+mkdir "%BUILD_PY_DIR%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '%CD%\%PY_EMBED_ZIP%' -DestinationPath '%CD%\%BUILD_PY_DIR%' -Force"
+if errorlevel 1 (
+  echo [ERROR] Failed to extract bundled Python zip.
+  exit /b 1
 )
 
 if not exist "%BUILD_PY%" (
   echo [ERROR] Embedded python.exe not found after extraction: %BUILD_PY%
+  echo [ERROR] Make sure installer_assets\python-3.12.10-embed-amd64.zip is the real Python embeddable ZIP, not the web installer.
   exit /b 1
 )
 
@@ -245,7 +247,11 @@ if errorlevel 1 exit /b 1
 
 call :is_any_python_312 "%BUILD_PY%"
 if errorlevel 1 (
-  echo [ERROR] Embedded Python exists but is not Python 3.12: %BUILD_PY%
+  echo [ERROR] Embedded Python could not be verified as Python 3.12: %BUILD_PY%
+  echo [ERROR] Version output:
+  "%BUILD_PY%" -V
+  echo [ERROR] If this fails, delete .build_runtime and confirm the ZIP filename is exactly:
+  echo [ERROR] installer_assets\python-3.12.10-embed-amd64.zip
   exit /b 1
 )
 

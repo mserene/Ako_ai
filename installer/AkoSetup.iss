@@ -1,5 +1,5 @@
 #define MyAppName "Ako"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppPublisher "mserene"
 #define MyAppExeName "Ako-ai.exe"
 #define MyAppLauncherName "Ako-ai_launcher.bat"
