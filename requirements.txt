@@ -5,8 +5,6 @@ mss
 numpy
 pillow
 pyautogui
-pyinstaller>=6.0
 pytesseract
 requests
 sounddevice
-

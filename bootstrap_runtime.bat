@@ -2,7 +2,7 @@
 setlocal EnableExtensions DisableDelayedExpansion
 
 rem ============================================================
-rem Ako runtime bootstrap v12
+rem Ako runtime bootstrap v13
 rem - First-run visible through VBS launcher.
 rem - DOES NOT pip-install requirements.txt at user runtime.
 rem   Reason: Ako-ai.exe is already built by PyInstaller.
@@ -30,7 +30,7 @@ if /I "%~1"=="--no-pause" set "NO_PAUSE=1"
 if not exist "%RUNTIME_DIR%" mkdir "%RUNTIME_DIR%" >nul 2>nul
 if not exist "%TMP%" mkdir "%TMP%" >nul 2>nul
 
-call :log INFO "Starting Ako runtime bootstrap v12"
+call :log INFO "Starting Ako runtime bootstrap v13"
 
 call :prepare_python
 if errorlevel 1 goto fail
@@ -148,17 +148,17 @@ exit /b 0
 
 :ensure_ollama_server
 call :log INFO "Checking Ollama server"
-ollama list >nul 2>nul
+"%OLLAMA_EXE%" list >nul 2>nul
 if not errorlevel 1 (
     call :log INFO "Ollama server OK"
     exit /b 0
 )
 
 call :log WARN "Ollama server not responding. Starting ollama serve in background."
-start "Ako Ollama Server" /min ollama serve
+start "Ako Ollama Server" /min "%OLLAMA_EXE%" serve
 timeout /t 5 /nobreak >nul
 
-ollama list >nul 2>nul
+"%OLLAMA_EXE%" list >nul 2>nul
 if errorlevel 1 (
     call :log ERROR "Ollama server did not respond."
     exit /b 1
@@ -170,7 +170,7 @@ exit /b 0
 :check_model
 call :log INFO "Checking Ollama model: %MODEL_NAME%"
 
-ollama list | findstr /I /C:"%MODEL_NAME%" >nul 2>nul
+"%OLLAMA_EXE%" list | findstr /I /C:"%MODEL_NAME%" >nul 2>nul
 if not errorlevel 1 (
     call :log INFO "Model already exists"
     exit /b 0
@@ -179,7 +179,7 @@ if not errorlevel 1 (
 call :log INFO "Pulling Ollama model: %MODEL_NAME%"
 call :log INFO "This can take a long time on first run."
 
-ollama pull "%MODEL_NAME%" >>"%LOG%" 2>&1
+"%OLLAMA_EXE%" pull "%MODEL_NAME%" >>"%LOG%" 2>&1
 if errorlevel 1 (
     call :log ERROR "ollama pull failed: %MODEL_NAME%"
     exit /b 1

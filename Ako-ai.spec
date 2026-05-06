@@ -7,17 +7,38 @@ from PyInstaller.utils.hooks import collect_submodules
 # 프로젝트 루트
 ROOT = os.path.abspath(os.path.dirname(SPEC) if 'SPEC' in dir() else os.getcwd())
 
-# venv 경로 자동 탐지 (하드코딩 제거)
+# Prefer the active build environment so stale developer venvs do not leak
+# package assets into a release build.
 def find_site_packages():
-    for candidate in [
-        os.path.join(ROOT, ".venv", "Lib", "site-packages"),
-        os.path.join(ROOT, "venv", "Lib", "site-packages"),
-    ]:
-        if os.path.isdir(candidate):
-            return candidate
+    candidates = []
+
+    env_site = os.environ.get("AKO_BUILD_SITE_PACKAGES", "")
+    if env_site:
+        candidates.append(env_site)
+
+    candidates.extend([
+        os.path.join(sys.prefix, "Lib", "site-packages"),
+        os.path.join(ROOT, ".build_venv", "Lib", "site-packages"),
+    ])
+
     for p in sys.path:
         if "site-packages" in p and os.path.isdir(p):
-            return p
+            candidates.append(p)
+
+    candidates.extend([
+        os.path.join(ROOT, ".venv", "Lib", "site-packages"),
+        os.path.join(ROOT, "venv", "Lib", "site-packages"),
+    ])
+
+    seen = set()
+    for candidate in candidates:
+        candidate = os.path.abspath(candidate)
+        key = os.path.normcase(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if os.path.isdir(candidate):
+            return candidate
     return ""
 
 SITE_PKG = find_site_packages()

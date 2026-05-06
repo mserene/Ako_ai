@@ -2,8 +2,8 @@
 setlocal EnableExtensions DisableDelayedExpansion
 
 rem ============================================================
-rem Ako developer build v13 - Tkinter required
-rem - Refuses python-*-embed-amd64.zip for PyInstaller.
+rem Ako developer build v14 - Tkinter required
+rem - Refuses Python embeddable/runtime installs for PyInstaller.
 rem - Ako GUI imports tkinter; Python embeddable ZIP has no Tk/Tcl.
 rem - Use full Python 3.12 with tkinter, or portable full Python.
 rem
@@ -19,7 +19,7 @@ set "TMP=%SCRIPT_DIR%.build_runtime\tmp"
 set "TEMP=%SCRIPT_DIR%.build_runtime\tmp"
 set "PYTHON_EXE="
 
-echo [INFO] Starting Ako developer build. (v13 tkinter-required)
+echo [INFO] Starting Ako developer build. (v14 tkinter-required)
 echo [INFO] Build Python must be full Python 3.12 with tkinter.
 echo.
 
@@ -56,6 +56,8 @@ echo [INFO] Finding Python 3.12 with tkinter...
 
 if defined BUILD_PYTHON_EXE (
     if exist "%BUILD_PYTHON_EXE%" (
+        call :reject_bad_python_path "%BUILD_PYTHON_EXE%"
+        if errorlevel 1 exit /b 1
         "%BUILD_PYTHON_EXE%" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
         if not errorlevel 1 (
             set "PYTHON_EXE=%BUILD_PYTHON_EXE%"
@@ -72,22 +74,24 @@ py -3.12 -c "import sys; print(sys.executable)" > "%TEMP%\ako_py_path.txt" 2>nul
 if not errorlevel 1 (
     set /p PYTHON_EXE=<"%TEMP%\ako_py_path.txt"
     if defined PYTHON_EXE (
-        echo [INFO] Found py -3.12: %PYTHON_EXE%
-        exit /b 0
+        call :reject_bad_python_path "%PYTHON_EXE%"
+        if not errorlevel 1 (
+            echo [INFO] Found py -3.12: %PYTHON_EXE%
+            exit /b 0
+        )
+        set "PYTHON_EXE="
     )
 )
 
 for /f "delims=" %%P in ('where python 2^>nul') do (
-    echo %%P | findstr /I "WindowsApps" >nul
-    if errorlevel 1 (
+    call :reject_bad_python_path "%%P"
+    if not errorlevel 1 (
         "%%P" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
         if not errorlevel 1 (
             set "PYTHON_EXE=%%P"
             echo [INFO] Found python: %%P
             exit /b 0
         )
-    ) else (
-        echo [WARN] Ignoring Microsoft Store Python alias: %%P
     )
 )
 
@@ -98,6 +102,8 @@ for %%P in (
     "C:\Python312\python.exe"
 ) do (
     if exist "%%~P" (
+        call :reject_bad_python_path "%%~P"
+        if errorlevel 1 exit /b 1
         "%%~P" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
         if not errorlevel 1 (
             set "PYTHON_EXE=%%~P"
@@ -119,6 +125,33 @@ echo [INFO] 2. Or extract portable full Python 3.12 and run:
 echo [INFO]    set BUILD_PYTHON_EXE=D:\path\to\portable-python\python.exe
 echo [INFO]    build_onefolder_runtime_bootstrap.bat
 exit /b 1
+
+:reject_bad_python_path
+set "CANDIDATE=%~1"
+if not defined CANDIDATE exit /b 1
+
+echo %CANDIDATE% | findstr /I /C:"\WindowsApps\" >nul
+if not errorlevel 1 (
+    echo [WARN] Ignoring Microsoft Store Python alias: %CANDIDATE%
+    exit /b 1
+)
+
+echo %CANDIDATE% | findstr /I /C:"\installer_assets\" /C:"\runtime_assets\" /C:"\.build_runtime\python312\" /C:"python-3.12.10-embed" >nul
+if not errorlevel 1 (
+    echo [ERROR] Refusing embeddable/runtime Python for build:
+    echo [ERROR] %CANDIDATE%
+    echo [ERROR] Use full Python 3.12 with Tcl/Tk for PyInstaller.
+    exit /b 1
+)
+
+if exist "%~dp1python312._pth" (
+    echo [ERROR] Refusing embeddable Python for build:
+    echo [ERROR] %CANDIDATE%
+    echo [ERROR] Detected python312._pth next to python.exe.
+    exit /b 1
+)
+
+exit /b 0
 
 :verify_tkinter
 set "CANDIDATE=%~1"
@@ -179,6 +212,7 @@ echo [INFO] Running PyInstaller...
 if exist "%SCRIPT_DIR%build" rmdir /s /q "%SCRIPT_DIR%build" >nul 2>nul
 if exist "%SCRIPT_DIR%dist" rmdir /s /q "%SCRIPT_DIR%dist" >nul 2>nul
 
+set "AKO_BUILD_SITE_PACKAGES=%BUILD_VENV%\Lib\site-packages"
 if exist "%SCRIPT_DIR%Ako-ai.spec" (
     "%BUILD_VENV%\Scripts\python.exe" -m PyInstaller "%SCRIPT_DIR%Ako-ai.spec" --noconfirm
 ) else (
@@ -202,23 +236,22 @@ echo [INFO] Copying runtime bootstrap files into dist...
 
 if exist "%SCRIPT_DIR%bootstrap_runtime.bat" (
     copy /Y "%SCRIPT_DIR%bootstrap_runtime.bat" "%DIST_DIR%\bootstrap_runtime.bat" >nul
+    if errorlevel 1 exit /b 1
 ) else (
     echo [ERROR] bootstrap_runtime.bat not found in project root.
     exit /b 1
 )
 
-if exist "%SCRIPT_DIR%Ako-ai_launcher.bat" (
-    copy /Y "%SCRIPT_DIR%Ako-ai_launcher.bat" "%DIST_DIR%\Ako-ai_launcher.bat" >nul
-)
-
 if exist "%SCRIPT_DIR%Ako-ai_launcher.vbs" (
     copy /Y "%SCRIPT_DIR%Ako-ai_launcher.vbs" "%DIST_DIR%\Ako-ai_launcher.vbs" >nul
+    if errorlevel 1 exit /b 1
+) else (
+    echo [ERROR] Ako-ai_launcher.vbs not found in project root.
+    exit /b 1
 )
 
-if exist "%SCRIPT_DIR%requirements.txt" (
-    copy /Y "%SCRIPT_DIR%requirements.txt" "%DIST_DIR%\requirements.txt" >nul
-)
-
+rem Do not copy Ako-ai_launcher.bat or requirements.txt into dist.
+rem Runtime bootstrap must not install Python packages on user PCs.
 exit /b 0
 
 :fail

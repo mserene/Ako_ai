@@ -1,29 +1,48 @@
-# Ako 배포(Windows) 가이드
+# Ako Windows Build/Installer Guide
 
-## 목표
-사용자는 `Ako-ai.exe`만 실행하면:
-1) GUI가 즉시 뜸
-2) 음성 인식을 켜면 필요한 STT 모델이 자동 다운로드됨 (처음 1회)
-3) 이후엔 캐시된 모델을 사용
+## Build/runtime split
 
-> 주의: STT 모델(예: small)은 용량이 큽니다. 첫 다운로드는 시간이 걸릴 수 있어요.
+- Developer build must use full Python 3.12 with Tcl/Tk.
+- Do not use `installer_assets\python-3.12.10-embed-amd64.zip` for PyInstaller.
+- The embed zip is installer/runtime support only. It is extracted by `bootstrap_runtime.bat` under `%LOCALAPPDATA%\Ako-ai\runtime\python312` when needed.
+- User runtime must not run `pip install -r requirements.txt`; `Ako-ai.exe` is already packaged by PyInstaller.
 
-## 빌드(개발자 PC)
-### 1) 가상환경
-```bat
-python -m venv .venv
-.venv\Scripts\activate
+## Verification
+
+1. Confirm full Python 3.12 + tkinter:
+
+```powershell
+py -3.12 -c "import tkinter; print('TK OK', tkinter.TkVersion)"
 ```
 
-### 2) 의존성 설치
-```bat
-pip install -r requirements.txt
+2. Remove broken build output:
+
+```powershell
+Remove-Item -Recurse -Force .\build, .\dist -ErrorAction SilentlyContinue
 ```
 
-### 3) 빌드
-```bat
-build_onefolder.bat
+3. Build onefolder:
+
+```powershell
+.\build_onefolder_runtime_bootstrap.bat
 ```
 
-빌드 결과:
-- `dist\Ako-ai\Ako-ai.exe`
+4. Test the executable directly before creating an installer:
+
+```powershell
+.\dist\Ako-ai\Ako-ai.exe
+```
+
+5. Compile the installer only after the GUI opens:
+
+```powershell
+iscc .\installer\AkoSetup.iss
+```
+
+6. Expected installer:
+
+```text
+installer_output\AkoSetup-0.1.2.exe
+```
+
+7. On a clean test PC, uninstall existing Ako, delete old shortcuts, delete `%LOCALAPPDATA%\Ako-ai\runtime`, install the new build, then test first run and second run.
